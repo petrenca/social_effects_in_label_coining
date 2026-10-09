@@ -1,0 +1,19 @@
+# Participant data - never commit (the folders themselves are kept via .gitkeep)
+data/*
+!data/.gitkeep
+
+# Test-run data - kept separate from real participant data
+data_test/*
+!data_test/.gitkeep
+
+# Live pair state written by sync/sync.php (contains participants' responses)
+sync/state/*
+!sync/state/.gitkeep
+sync/state_test/*
+!sync/state_test/.gitkeep
+
+# SFTP config contains server credentials - keep private
+.vscode/sftp.json
+
+# Live ID queue - authoritative copy lives on the server
+ID_management/IDs_social.txt

@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html>
+<!----------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
+    //--------------------------------------------------------------------------------Setting up-----------------------------------------------------------------------------//
+    //---------------------------------------------------------------------------------------------------------------------------------------------------------------------------//-->
+<!--
+    Main experiment: social influence on label adoption (two participants, two computers).
+    Read README.md first - it explains the folder structure and how the two browsers communicate.
+
+    How it is started (by the experimenter, on two lab computers):
+      naive participant:   main_social.html?role=naive
+      confederate:         main_social.html?role=confederate&pair=<pair ID shown on the naive computer>
+      test runs:           add &test=1 to both URLs (uses data_test/, ID_management_test/, sync/state_test/)
+
+    Sections that are already written: 0 (pair ID, role, condition), 1 (fullscreen + consent), 7 (saving).
+    They only work once the infrastructure has been copied in from Exp2 (README.md, "Setting up the infrastructure").
+    Sections marked TODO are for you to implement.
+-->
+
+<head>
+    <meta charset="UTF-8">
+    <title>[TODO: Titel des Experiments]</title>
+    <script src="https://unpkg.com/jspsych@7.2.3"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-fullscreen@1.1.2"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-preload@1.1.2"></script>
+    <script src="jspsych/plugin-html-keyboard-response.js"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-button-response@1.1.2"></script>
+    <script src="jspsych/plugin-survey-text.js"></script>
+    <script src="jspsych/plugin-survey.js"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-call-function@1.1.2"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-external-html@1.1.2"></script>
+    <!-- TODO: add further plugins from jspsych/ as needed (e.g. plugin-image-button-response.js for phase 2) -->
+    <!-- add jquery library (needed for the synchronous ID requests and for saving data) -->
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
+    <!-- add style sheets -->
+    <link href="jspsych/jspsych.css" rel="stylesheet" type="text/css" />
+    <link href="jspsych/survey.css" rel="stylesheet" type="text/css" />
+
+    <!-- add okay and notokay functions for the informed consent page -->
+    <script src="resources/informed-consent.js"></script>
+    <!-- check browser -->
+    <script src="resources/browserCheck.js"></script>
+    <!-- all changeable parameters (conditions, timing, trial numbers, confederate behaviour) -->
+    <script src="resources/experiment_config.js"></script>
+    <!-- communication with the partner's browser - the ONLY place that talks to sync/sync.php -->
+    <script src="resources/pair_sync.js"></script>
+</head>
+
+<body></body>
+
+<script>
+    /* initialize jsPsych */
+    var jsPsych = initJsPsych({});
+
+    //-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
+    //----------------------0. Test mode, role, pair ID and condition--------------------------------------------------------------------------------------------------------------//
+    //---------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
+    var TEST_MODE = jsPsych.data.getURLVariable('test') === '1';
+    var PATHS = TEST_MODE ? {
+        manageID: 'ID_management_test/manageID_test.php',
+        cleanupID: 'ID_management_test/cleanupID_test.php',
+        saveData: 'save_data_test.php',
+        filePrefix: 'TEST_social_',
+    } : {
+        manageID: 'ID_management/manageID_social.php',
+        cleanupID: 'ID_management/cleanupID_social.php',
+        saveData: 'save_data.php',
+        filePrefix: 'social_',
+    };
+    // TODO (when implementing pair_sync.js): pass TEST_MODE on to sync.php so test runs
+    // write into sync/state_test/ instead of sync/state/.
+
+    /* ID management: the naive participant's browser draws the next pair ID from the queue
+       (ID_management/IDs_social.txt). The confederate's browser does not draw an ID - the
+       experimenter passes the same pair ID in the URL (?role=confederate&pair=...). The ID is only
+       removed from the queue once the naive participant's data has been saved - see section 7. */
+    function getID(url) {
+        let numID = 0;
+        $.ajax({
+            url: url,
+            type: 'POST',
+            async: false, // blocks until the ID is returned
+            data: {},
+        }).done(function (data) {
+            numID = $.trim(data);
+        });
+        return numID;
+    }
+
+    function isEmpty(str) {
+        return (!str || str.length === 0);
+    }
+
+    var role = jsPsych.data.getURLVariable('role');   // 'naive' or 'confederate'
+    var ID = (role === 'naive') ? getID(PATHS.manageID) : jsPsych.data.getURLVariable('pair');
+
+    if ((role !== 'naive' && role !== 'confederate') || (role === 'confederate' && isEmpty(ID))) {
+        jsPsych.run([{
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: '<p>Fehler: Bitte die Seite mit <b>?role=naive</b> oder <b>?role=confederate&amp;pair=…</b> öffnen.</p>',
+            choices: "NO_KEYS",
+        }]);
+    } else if (isEmpty(ID)) {
+        //-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        //----------------------Data collection for this version of the study is over--------------------------------------------------------------------------------------------------//
+        //---------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        // not "closed": that is a read-only browser global (window.closed)
+        var closed_screen = {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: '<div style="width: 1000px;text-align:center;">' +
+                '<p>Leider ist die Datenerhebung für diese Version der Studie bereits abgeschlossen.</p></div>',
+            choices: "NO_KEYS",
+        };
+        jsPsych.run([closed_screen]);
+    } else {
+        var pairID = parseInt(ID);
+        var condition = getCondition(pairID);
+        PairSync.join(pairID, role);
+
+        // these columns are added to every row of the data file
+        jsPsych.data.addProperties({
+            pair_id: pairID,
+            role: role,
+            condition: condition,
+            test_mode: TEST_MODE,
+        });
+
+        // Shown only to the experimenter before the participant sits down: the pair ID that has to
+        // be entered in the confederate's URL.
+        var experimenter_screen = {
+            type: jsPsychHtmlButtonResponse,
+            stimulus: '<p>Paar-ID: <b>' + pairID + '</b> &nbsp;|&nbsp; Rolle: <b>' + role + '</b>' +
+                (TEST_MODE ? ' &nbsp;|&nbsp; <b style="color:red;">TESTMODUS</b>' : '') + '</p>',
+            choices: ['Start'],
+            data: { phase: 'setup' },
+        };
+
+        //-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        //----------------------1. Welcome and consent--------------------------------------------------------------------------------------------------------------------------------//
+        //---------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        var enter_fullscreen = {
+            type: jsPsychFullscreen,
+            fullscreen_mode: true,
+            message: '<p><i>Das Experiment wechselt in den Vollbildmodus.</i></p>',
+            button_label: 'Starten',
+        };
+
+        // TODO: adapt the text of resources/informedconsent_social_de.html (see the TODOs in that file)
+        var informed_consent = {
+            type: jsPsychExternalHtml,
+            url: "resources/informedconsent_social_de.html",
+            cont_btn: "start"
+        };
+
+        // TODO: preload all stimulus images (see preload_trial in Exp2 goodness_ratings.html)
+
+        //-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        //------------------2. Demographics--------------------------------------------------------------------------------------------------------------------------------------------//
+        //---------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        /* TODO: build a jsPsychSurvey trial (plugin-survey.js) called "demographics".
+           Template: the "demographics" trial in
+             02_pre_study_goodness_ratings/01_jspsych_Exp2_goodness_ratings/goodness_ratings.html
+           Collect (all required; use these "name"s so the data columns match Exp1 and Exp2):
+             - age                  text, numbers only
+             - gender               text
+             - monolingual_german   multi-choice Ja / Nein ("Sind Sie einsprachig mit Deutsch als einziger Muttersprache aufgewachsen?")
+             - nat_lang             text, native language(s)
+           Differences from the online pre-studies:
+             - no Prolific ID: this is a lab study; the pair ID is already stored in every row
+             - consider also asking whether the participant knows the other participant (name: 'knows_partner')
+           Do not forget to add "demographics" to the timeline in section 8. */
+
+        //-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        //------------------3. Phase 1 - Grounding (shared)----------------------------------------------------------------------------------------------------------------------------//
+        //---------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        /* TODO: for each concept (CONFIG.n_concepts):
+             1. PairSync.waitForPartner('phase1_start_c<n>')      both see the same image at the same time
+             2. label entry, max CONFIG.timing.phase1_label_entry_ms
+             3. PairSync.sendValue('phase1_label_c<n>', label)
+             4. PairSync.getPartnerValue('phase1_label_c<n>', ...) then show own label + partner label
+             5. discussion screen, CONFIG.timing.phase1_discussion_ms
+             6. choice between the two labels, then sendValue('phase1_choice_c<n>', choice)
+           Save in data: phase, trial, stimulus, response, rt, partner_label. */
+
+        //-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        //------------------4. Phase 2 - Sender-receiver picture selection (shared)----------------------------------------------------------------------------------------------------//
+        //---------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        /* TODO: picture selection trials. The confederate's choices are SCRIPTED from condition and
+           CONFIG.confederate (not from the naive participant's response), except where the
+           condition says otherwise. Feedback is shown on both screens. Write the confederate's
+           behaviour as a function of (condition, trial) in a separate section so it is easy to change. */
+
+        //-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        //------------------5. Phase 3 - Private naming (naive participant only)-------------------------------------------------------------------------------------------------------//
+        //---------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        /* TODO: "Welche Bezeichnung beschreibt dieses Konzept am besten?" for each concept, no
+           communication with the partner. Main dependent variable: whether the answer equals the
+           confederate's label from phase 1 (store confederate_label in the data of each trial). */
+
+        //---------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        //--------------------------------6. Post-experiment questionnaire--------------------------------------------------------------------------------------------------------------//
+        //---------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        /* TODO: build a jsPsychSurveyText trial (plugin-survey-text.js) called "questionnaire",
+           preceded by a short html-button-response screen ("Das war die Hauptaufgabe! ..."), as in Exp2.
+           Questions (all required), same names as Exp1/Exp2 so the data can be compared:
+             - attention     "Haben Sie der Studie aufmerksam gefolgt?"
+             - strategies    "Welche Strategien haben Sie verwendet, um ... ?" (adapt to the tasks)
+             - notice        "Ist Ihnen während des Experiments etwas aufgefallen? Irgendetwas Merkwürdiges oder Überraschendes?"
+           Additional questions for this study (confederate design):
+             - suspicion     whether they believed the other person was a real, naive participant
+                             (ask open-ended first, then directly - "funnel debriefing")
+             - partner_impression   how they perceived the other participant (e.g. competent, likeable)
+           Only the naive participant needs the questionnaire; skip it for role === 'confederate'
+           (use a conditional timeline: { timeline: [...], conditional_function: ... }).
+           After the questionnaire, the experimenter does the verbal debriefing (reveal the confederate). */
+
+        //---------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        //------------------------------------------------7. Save data and free the ID-----------------------------------------------------------------------------------------------//
+        //---------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        function saveData(name, data, onSuccess) {
+            $.ajax({
+                type: 'post',
+                cache: false,
+                url: PATHS.saveData,
+                data: { filename: name, filedata: data }
+            }).done(onSuccess);
+        };
+
+        function cleanupID(id) {
+            $.ajax({
+                type: 'post',
+                cache: false,
+                url: PATHS.cleanupID,
+                data: { ID: id }
+            });
+        };
+
+        // One file per participant, e.g. data/social_12_naive_1760000000000.csv and
+        // data/social_12_confederate_1760000000000.csv - merge the two by pair_id in the analysis.
+        // TODO: consider also saving after each phase, so a crash in phase 3 does not lose phases 1-2.
+        var save_data_block = {
+            type: jsPsychCallFunction,
+            func: function () {
+                var filename = PATHS.filePrefix + pairID + "_" + role + "_" + Date.now() + ".csv";
+                // Only the naive participant frees the pair ID, and only once save_data.php has
+                // confirmed that the data file was written (cleanupID also re-checks on the server).
+                saveData(filename, jsPsych.data.get().csv(), function () {
+                    if (role === 'naive') cleanupID(pairID);
+                });
+            },
+            timing_post_trial: 200,
+        };
+
+        var exit_fullscreen = {
+            type: jsPsychFullscreen,
+            fullscreen_mode: false,
+            delay_after: 0
+        };
+
+        // TODO: final text for the lab (e.g. "Bitte wenden Sie sich an die Versuchsleitung.")
+        var final = {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: '<p><b>Vielen Dank für Ihre Teilnahme!</b></p>' +
+                '<p>[TODO: Abschlusstext]</p>',
+            choices: "NO_KEYS",
+        };
+
+        //---------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        //------------------------------------------------8. Timeline-------------------------------------------------------------------------------------------------------------------//
+        //---------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        var timeline = [
+            experimenter_screen,
+            enter_fullscreen,
+            informed_consent,
+            // TODO: demographics,
+            // TODO: phase 1, phase 2, phase 3,
+            // TODO: questionnaire (naive participant only),
+            save_data_block,
+            exit_fullscreen,
+            final
+        ];
+
+        /* start the experiment */
+        jsPsych.run(timeline);
+    }
+</script>
+
+</html>
+<!--//----------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
+//--------------------------------------The end!---------------------------------------------------------------------------------------//
+//------------------------------------------------------------------------------------------------------------------------------------------------------------------------------//-->
