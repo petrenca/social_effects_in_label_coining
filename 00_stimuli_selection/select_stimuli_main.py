@@ -1,22 +1,34 @@
 """
-Selects the main-experiment stimuli (20 concepts x 4 good + 4 bad labels) from the
-Experiment 2 stimulus set and copies the images into the jsPsych folder.
+Selects the main-experiment stimuli from the Experiment 2 goodness ratings and copies the
+images into the jsPsych folder: 16 target concepts (1 good + 1 bad label each; the label
+goodness condition decides which one the confederate uses) and 8 filler concepts (1 middle
+label each, used by the confederate in every condition).
 
-Selection logic (same ranking as the Exp2 selection in generate_stimuli_list.py):
-  - start from the 50 Exp2 concepts (01_pre_study_labels/04_stimuli_for_Exp2/selected_stimuli.csv)
-  - drop concepts with a mean ease-of-naming difficulty >= MAX_DIFFICULTY
-  - take the N_CONCEPTS concepts whose best label has the highest SigLIP2 cosine
-  - keep the same 4 good and 4 bad labels per concept as in Exp2, ordered by cosine
-    (good1 = highest cosine)
+Input: pair_summary.csv from 03_human_model_convergence.R (one row per Exp2 concept-label
+pair: SigLIP2 cosine, mean goodness rating, z-scores across all rated pairs, |dz|).
 
-DATA STAGE NOTICE: based on the Exp1 pilot only, and Exp2 (goodness ratings) has not
-been run yet. Once the Exp2 ratings are in, the good/bad split should come from the
-human ratings instead of the SigLIP2 cosines - re-run this script then.
+Selection logic (preregistration: humans and SigLIP2 must converge):
+  good label  per concept, the good label with the highest cosine among those humans
+              agree with: z(rating) > 0, z(cosine) > 0 and |z(rating) - z(cosine)| <= MAX_ABS_DIFF_Z
+  bad label   "bad but plausible", not the worst: a bad label that is neither the lowest-cosine
+              nor the lowest-rated bad label of its concept and that humans rate below the mean
+              (z(rating) < 0); among these the one with the smallest |dz|
+  targets     the N_TARGETS concepts with both labels whose good label has the highest cosine
+  middle label (fillers) a middling label humans and SigLIP2 agree on: mean rating within
+              FILLER_RATING_RANGE (around 50), |z(cosine)| <= FILLER_MAX_ABS_Z_COSINE and
+              |z(rating) - z(cosine)| <= MAX_ABS_DIFF_Z; per concept the one rated closest to 50
+  fillers     N_FILLERS concepts drawn at random (fixed seed FILLER_SEED, so every pair gets the
+              same fillers) from the non-target concepts that have a middle label
+
+DATA STAGE NOTICE: PAIR_SUMMARY points to the Exp2 PILOT (1-3 ratings per pair). The output
+lets programming start; re-run on the main Exp2 data (02_Exp2/output/summaries/pair_summary.csv)
+before testing participants. Open decisions (threshold, z scope, minimum ratings, ease range)
+are listed in 05_select_main_stimuli.R.
 
 Outputs (in ../01_jspsych_main_social/stimuli/):
-  concepts.csv     one row per concept - read by the experiment
-  labels_long.csv  one row per concept x label, with cosine, novelty and check flags
-  pictures/        the 20 images
+  concepts.csv     one row per concept (item_type: target / filler) - read by the experiment
+  labels_long.csv  one row per concept x label with all selection measures
+  pictures/        the 24 images (other images are removed)
 
 Run with the pilot analysis venv's python:
   ..\\..\\01_pre_study_labels\\02_analysis_Exp1_labels\\01_pilot\\.venv\\Scripts\\python select_stimuli_main.py
@@ -27,61 +39,85 @@ from pathlib import Path
 
 import pandas as pd
 
-N_CONCEPTS = 20
-MAX_DIFFICULTY = 50
-N_GOOD = 4
-N_BAD = 4
+N_TARGETS = 16
+N_FILLERS = 8
+MAX_ABS_DIFF_Z = 0.5
+FILLER_RATING_RANGE = (45, 55)
+FILLER_MAX_ABS_Z_COSINE = 0.5
+FILLER_SEED = 1
 
 HERE = Path(__file__).parent                       # 03_main_experiment_social_factors/00_stimuli_selection/
 SOCIAL = HERE.parent.parent                        # 02_social factors/
-EXP2_SELECTION = SOCIAL / "01_pre_study_labels" / "04_stimuli_for_Exp2" / "selected_stimuli.csv"
+PAIR_SUMMARY = (SOCIAL / "02_pre_study_goodness_ratings" / "02_analysis_Exp2_goodness_ratings"
+                / "01_pilot_ratings" / "output" / "summaries" / "pair_summary.csv")
 EXP2_PICTURES = SOCIAL / "02_pre_study_goodness_ratings" / "01_jspsych_Exp2_goodness_ratings" / "stimuli" / "pictures"
 OUT = HERE.parent / "01_jspsych_main_social" / "stimuli"
 
+COLS = ["label", "cosine", "mean_rating", "n_ratings", "z_cosine", "z_rating", "abs_diff_z",
+        "model_rank", "human_rank", "novelty", "n_exp1_producers"]
+
 
 def main():
-    labels = pd.read_csv(EXP2_SELECTION)
+    pairs = pd.read_csv(PAIR_SUMMARY)
+    pairs = pairs[pairs.rated]
 
-    concepts = (labels.groupby("concept_id")
-                .agg(image=("picture", "first"),
-                     difficulty_mean=("difficulty_mean", "first"),
-                     best_cosine=("best_cosine", "first"))
-                .reset_index())
-    concepts = (concepts[concepts.difficulty_mean < MAX_DIFFICULTY]
-                .sort_values("best_cosine", ascending=False)
-                .head(N_CONCEPTS))
-    if len(concepts) < N_CONCEPTS:
-        raise SystemExit(f"only {len(concepts)} concepts below difficulty {MAX_DIFFICULTY}")
+    good = pairs[(pairs.label_type == "good") & (pairs.z_rating > 0) & (pairs.z_cosine > 0)
+                 & (pairs.abs_diff_z <= MAX_ABS_DIFF_Z)]
+    good = good.sort_values("cosine", ascending=False).groupby("concept_id").head(1)
 
-    labels = labels[labels.concept_id.isin(concepts.concept_id)].copy()
-    labels = labels.sort_values(["concept_id", "label_type", "similarity"], ascending=[True, False, False])
-    labels["label_rank"] = labels.groupby(["concept_id", "label_type"]).cumcount() + 1
-    labels["label_slot"] = labels.label_type + labels.label_rank.astype(str)
+    bad = pairs[pairs.label_type == "bad"].copy()
+    by_concept = bad.groupby("concept_id")
+    worst = (bad.cosine == by_concept.cosine.transform("min")) | \
+            (bad.mean_rating == by_concept.mean_rating.transform("min"))
+    bad = bad[~worst & (bad.z_rating < 0)]
+    bad = bad.sort_values("abs_diff_z").groupby("concept_id").head(1)
 
-    counts = labels.groupby(["concept_id", "label_type"]).size().unstack()
-    if not ((counts["good"] == N_GOOD) & (counts["bad"] == N_BAD)).all():
-        raise SystemExit(f"not every concept has {N_GOOD} good and {N_BAD} bad labels:\n{counts}")
+    sel = (good[["concept_id", "difficulty_mean"] + COLS]
+           .merge(bad[["concept_id"] + COLS], on="concept_id", suffixes=("_good", "_bad"))
+           .sort_values("cosine_good", ascending=False))
+    print(f"{len(good)} concepts with a converging good label, {len(bad)} with an eligible bad label, "
+          f"{len(sel)} with both")
+    if len(sel) < N_TARGETS:
+        raise SystemExit(f"only {len(sel)} eligible concepts - relax MAX_ABS_DIFF_Z")
+    sel = sel.head(N_TARGETS).assign(item_type="target")
 
-    slots = [f"good{i}" for i in range(1, N_GOOD + 1)] + [f"bad{i}" for i in range(1, N_BAD + 1)]
-    wide = labels.pivot(index="concept_id", columns="label_slot", values="label")[slots].reset_index()
-    flagged = (labels[labels.check.notna()].groupby("concept_id").label
-               .apply(lambda s: ";".join(s)).rename("labels_to_check"))
-    wide = (concepts.merge(wide, on="concept_id")
-            .merge(flagged, on="concept_id", how="left"))
-    wide.insert(0, "concept_nr", range(1, len(wide) + 1))
-    wide["labels_to_check"] = wide["labels_to_check"].fillna("")
+    middle = pairs[pairs.mean_rating.between(*FILLER_RATING_RANGE)
+                   & (pairs.z_cosine.abs() <= FILLER_MAX_ABS_Z_COSINE)
+                   & (pairs.abs_diff_z <= MAX_ABS_DIFF_Z)
+                   & ~pairs.concept_id.isin(sel.concept_id)].copy()
+    middle["dist_50"] = (middle.mean_rating - 50).abs()
+    middle = middle.sort_values("dist_50").groupby("concept_id").head(1).sort_values("concept_id")
+    print(f"{len(middle)} non-target concepts with a middle label")
+    if len(middle) < N_FILLERS:
+        raise SystemExit(f"only {len(middle)} eligible filler concepts - widen FILLER_RATING_RANGE")
+    fill = (middle.sample(N_FILLERS, random_state=FILLER_SEED)[["concept_id", "difficulty_mean"] + COLS]
+            .rename(columns={c: f"{c}_middle" for c in COLS}).assign(item_type="filler"))
 
-    (OUT / "pictures").mkdir(parents=True, exist_ok=True)
-    wide.to_csv(OUT / "concepts.csv", index=False, encoding="utf-8")
-    labels[["concept_id", "picture", "label_slot", "label_type", "label",
-            "similarity", "novelty", "produced_as", "n_participants", "check"]] \
-        .rename(columns={"picture": "image", "similarity": "siglip_cosine"}) \
-        .to_csv(OUT / "labels_long.csv", index=False, encoding="utf-8")
-    for image in wide.image:
-        shutil.copy2(EXP2_PICTURES / image, OUT / "pictures" / image)
+    sel = pd.concat([sel, fill], ignore_index=True)
+    sel.insert(0, "concept_nr", range(1, len(sel) + 1))
+    sel.insert(2, "image", sel.concept_id.astype(str) + ".jpg")
 
-    print(wide[["concept_nr", "concept_id", "image", "difficulty_mean", "best_cosine"] + slots].to_string(index=False))
-    print(f"\nwrote {len(wide)} concepts to {OUT}")
+    concepts = sel[["concept_nr", "concept_id", "image", "item_type", "difficulty_mean",
+                    "label_good", "label_bad", "label_middle", "cosine_good", "cosine_bad", "cosine_middle",
+                    "mean_rating_good", "mean_rating_bad", "mean_rating_middle"]] \
+        .rename(columns={"label_good": "good_label", "label_bad": "bad_label", "label_middle": "middle_label"})
+    long = pd.concat([
+        sel[["concept_nr", "concept_id", "image", "item_type"] + [f"{c}_{t}" for c in COLS]]
+        .rename(columns=lambda c: c.removesuffix(f"_{t}")).assign(label_type=t).dropna(subset=["label"])
+        for t in ("good", "bad", "middle")]).sort_values(["concept_nr", "label_type"], ascending=[True, False])
+
+    pictures = OUT / "pictures"
+    pictures.mkdir(parents=True, exist_ok=True)
+    for old in pictures.glob("*.jpg"):
+        if old.name not in set(concepts.image):
+            old.unlink()
+    for image in concepts.image:
+        shutil.copy2(EXP2_PICTURES / image, pictures / image)
+    concepts.to_csv(OUT / "concepts.csv", index=False, encoding="utf-8")
+    long.to_csv(OUT / "labels_long.csv", index=False, encoding="utf-8")
+
+    print(concepts.to_string(index=False, float_format="%.3f"))
+    print(f"\nwrote {len(concepts)} concepts to {OUT}")
 
 
 if __name__ == "__main__":
