@@ -10,12 +10,25 @@ Two participants (a naive participant and a confederate) sit at two computers in
 | `resources/experiment_config.js` | All changeable parameters: conditions, timing, trial numbers, confederate behaviour, stimuli file. | to fill in |
 | `resources/pair_sync.js` | Browser side of the communication between the two computers. | to implement |
 | `sync/sync.php` | Server side of the communication: shared store of both participants' responses. | to implement |
-| `stimuli/concepts.csv` | 20 concepts from Exp2, one row each: `concept_nr`, `concept_id`, `image`, `good1`-`good4`, `bad1`-`bad4` (ordered by SigLIP2 cosine), `labels_to_check`. Read by the experiment. | done (provisional) |
-| `stimuli/labels_long.csv` | The same labels, one row per label, with cosine, novelty and how often they were produced in Exp1. | done (provisional) |
+| `stimuli/concepts.csv` | 20 concepts from Exp2, one row each: `concept_nr`, `concept_id`, `image`, `difficulty_mean`, `good_label`, `bad_label`, their SigLIP2 cosines and mean goodness ratings. Made by `../00_stimuli_selection/select_stimuli_main.py`. Read by the experiment. | done (provisional: Exp2 pilot ratings) |
+| `stimuli/labels_long.csv` | The same 40 labels, one row per label, with cosine, rating, z-scores, absolute z difference, ranks, novelty and how often they were produced in Exp1. | done (provisional) |
 | `stimuli/pictures/` | The 20 images (same resized files as Exp2). | done |
 | `jspsych/` | Local jsPsych plugins (same as Exp2). | done |
 | `ID_management/`, `ID_management_test/`, `data/`, `data_test/`, `sync/state/`, `sync/state_test/` | Empty, to be filled (see below). | to fill |
 | `.gitignore` | Keeps participant data, the live ID list, the sync state and server passwords out of GitHub. Do not delete. | done |
+
+## Basic version: main phases only, run locally in the lab
+
+`main_social_basic.html` contains only the three main phases (no consent, demographics, questionnaire or ID queue). It uses the same `PairSync` / `sync.php` architecture described below, and everything is loaded locally (no internet needed).
+
+1. Connect both computers to the same network. On **one** of them, double-click `start_local.bat`. It starts `local_server.py` (Python 3, standard library only), which serves this folder and does the job of `sync/sync.php` and `save_data*.php`. Windows asks once whether Python may accept network connections: allow it for private networks. The window prints the address for the other computer, e.g. `http://192.168.0.12:8000/main_social_basic.html`.
+2. Open the page on both computers, choose the role (Versuchsperson / Confederate) and enter the **same pair ID** on both. Or open the URLs directly: `main_social_basic.html?role=naive&pair=1` and `...?role=confederate&pair=1`. Add `&test=1` for test runs (`data_test/`, `sync/state_test/`) and `&n=3` to use only 3 concepts.
+3. **Assertiveness** varies between pairs: the confederate is assertive or compliant on all 16 targets, and does the opposite on the 8 fillers. **Label goodness** varies within pairs: the confederate enters the good label for 8 targets and the bad label for the other 8. List A gives odd-numbered targets the good label and even-numbered ones the bad label; list B is the reverse. Fillers always use their middle label. Both follow from the pair ID: pair 1 = assertive/list A, 2 = compliant/A, 3 = assertive/B, 4 = compliant/B, 5 = assertive/A, and so on. They are only shown on the confederate's screen. The confederate's screens show the strategy, the scripted label and the answer to give, highlighted in yellow.
+4. Test run with one item per phase: tick "Testmodus" and enter 1 for "Anzahl Bilder" (or add `&test=1&n=1` to both URLs). The item is picked by pair ID, so different pair IDs test different items, targets and fillers.
+
+Stimuli: `stimuli/concepts.csv` (16 targets + 8 fillers, column `item_type`) is made by `../00_stimuli_selection/select_stimuli_main.py`. A filler's middle label has a mean rating of 45–55, |z(cosine)| ≤ 0.5 and |z(rating) − z(cosine)| ≤ 0.5. If more than 8 non-target concepts qualify, the 8 fillers are drawn with a fixed seed, so every pair gets the same fillers.
+
+Data: `data/social_<pair>_<role>_<start time>.csv`, saved after phase 1, phase 2 and at the end, overwriting the same file each time. If saving fails, the file is downloaded in the browser instead.
 
 ## Setting up the infrastructure (copy from Exp2)
 
