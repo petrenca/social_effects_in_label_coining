@@ -77,6 +77,9 @@
     var role = urlParams.get('role');   // 'naive' or 'confederate'
     var pairID = parseInt(urlParams.get('pair'));
     var TEST_MODE = urlParams.get('test') === '1';
+    var requestedTestCondition = urlParams.get('test_condition');
+    var TEST_ASSERTIVENESS = TEST_MODE && role === 'confederate' &&
+        CONFIG.assertiveness_conditions.indexOf(requestedTestCondition) !== -1 ? requestedTestCondition : null;
     var N_OVERRIDE = parseInt(urlParams.get('n'));
     var PATHS = TEST_MODE
         ? { saveData: 'save_data_test.php', filePrefix: 'TEST_social_' }
@@ -105,15 +108,38 @@
             'Paar-ID: <input name="pair" type="number" min="1" required style="width:80px"> ' +
             '<small>(auf beiden Computern gleich)</small><br>' +
             '<label><input name="test" type="checkbox" value="1"> Testmodus</label><br>' +
+            '<label id="test-condition-row" hidden>Bedingung (nur Testmodus): ' +
+            '<select name="test_condition" disabled>' +
+            '<option value="">Automatisch (Paar-ID)</option>' +
+            '<option value="compliant">Compliant</option>' +
+            '<option value="assertive">Assertive</option>' +
+            '</select><br></label>' +
             'Anzahl Bilder: <input name="n" type="number" min="1" style="width:60px"> ' +
             '<small>(leer = alle; nur für Tests)</small><br>' +
             '<button class="btn" type="submit">Weiter</button>' +
             '</form>';
-        document.getElementById('launcher').addEventListener('submit', function (e) {
+        var form = document.getElementById('launcher');
+        var conditionRow = document.getElementById('test-condition-row');
+        form.role.value = role === 'confederate' ? 'confederate' : 'naive';
+        form.test.checked = TEST_MODE;
+        if (TEST_ASSERTIVENESS) form.test_condition.value = TEST_ASSERTIVENESS;
+        function updateTestCondition() {
+            var available = form.test.checked && form.role.value === 'confederate';
+            conditionRow.hidden = !available;
+            form.test_condition.disabled = !available;
+        }
+        form.role.addEventListener('change', updateTestCondition);
+        form.test.addEventListener('change', updateTestCondition);
+        updateTestCondition();
+        form.addEventListener('submit', function (e) {
             e.preventDefault();
             var f = e.target;
             var q = '?role=' + f.role.value + '&pair=' + parseInt(f.pair.value) + (f.test.checked ? '&test=1' : '') +
                 (parseInt(f.n.value) > 0 ? '&n=' + parseInt(f.n.value) : '');
+            if (f.test.checked && f.role.value === 'confederate' &&
+                    CONFIG.assertiveness_conditions.indexOf(f.test_condition.value) !== -1) {
+                q += '&test_condition=' + encodeURIComponent(f.test_condition.value);
+            }
             window.location.search = q;
         });
     }
@@ -201,6 +227,8 @@
         var jsPsych = initJsPsych({});
         var condition = getCondition(pairID);   // { assertiveness, label_goodness }
         var isConf = role === 'confederate';
+        var assignedAssertiveness = condition.assertiveness;
+        if (TEST_ASSERTIVENESS) condition.assertiveness = TEST_ASSERTIVENESS;
         PairSync.join(pairID, role, TEST_MODE);
 
         // these columns are added to every row of the data file
@@ -208,6 +236,8 @@
             pair_id: pairID,
             role: role,
             assertiveness: condition.assertiveness,
+            assigned_assertiveness: assignedAssertiveness,
+            test_condition_override: TEST_ASSERTIVENESS !== null,
             label_list: condition.label_list,
             test_mode: TEST_MODE,
         });
@@ -404,7 +434,29 @@
             data: { phase: 'setup', step: 'connect' },
             render: function (el, ctx) {
                 showWaiting(el, 'Verbinde mit dem anderen Computer (Paar-ID ' + pairID + ') …');
-                PairSync.connect(function () { ctx.finish(); });
+                PairSync.connect(function () {
+                    if (!TEST_MODE) return ctx.finish();
+                    // Only the confederate selects the test condition. Share it after the fresh
+                    // handshake so both browsers and their saved data use the same setting.
+                    var useSharedCondition = function (shared) {
+                        if (!shared || CONFIG.assertiveness_conditions.indexOf(shared.assertiveness) === -1) {
+                            showWaiting(el, 'Ungültige Testbedingung. Bitte startet den Test auf beiden Computern neu.');
+                            return;
+                        }
+                        condition.assertiveness = shared.assertiveness;
+                        jsPsych.data.addProperties({
+                            assertiveness: condition.assertiveness,
+                            test_condition_override: shared.overridden === true,
+                        });
+                        PairSync.waitForPartner('test_condition_ready', function () { ctx.finish(); });
+                    };
+                    if (isConf) {
+                        var shared = { assertiveness: condition.assertiveness, overridden: TEST_ASSERTIVENESS !== null };
+                        PairSync.sendValue('test_condition', shared, function () { useSharedCondition(shared); });
+                    } else {
+                        PairSync.getPartnerValue('test_condition', useSharedCondition);
+                    }
+                });
             },
         };
 
@@ -518,7 +570,7 @@
                         '<div>Dein Begriff<div class="word">' + caps(own) + '</div></div>' +
                         '<div>Begriff deines Partners<div class="word">' + caps(partner) + '</div></div>' +
                         '</div>' +
-                        '<p>Sprecht jetzt miteinander und versucht, euch auf einen gemeinsamen Begriff zu einigen.</p>' +
+                        '<p>Sprecht jetzt miteinander und besprecht, welcher Begriff besser zu dem Bild passt. .</p>' +
                         timerHTML() +
                         '<button class="btn" id="discussion-done">Weiter (wir sind fertig)</button>');
                     var button = el.querySelector('#discussion-done');
