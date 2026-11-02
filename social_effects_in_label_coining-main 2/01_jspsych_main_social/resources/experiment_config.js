@@ -21,7 +21,7 @@ var CONFIG = {
     // timing in milliseconds (values from the study description)
     timing: {
         phase1_label_entry_ms: 60000,   // time to think of and enter a label (a countdown; entry is not cut off)
-        phase1_discussion_ms: 60000,    // discussion guideline; both participants must still confirm with Weiter
+        phase1_discussion_ms: 60000,    // discussion time limit; automatically completes through the pair barrier
         sync_poll_interval_ms: 500,     // how often the browser asks the server for news
     },
 

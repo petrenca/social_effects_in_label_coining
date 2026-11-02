@@ -30,7 +30,8 @@ class Element {
         this.textContent = '';
         this.events = {};
         this.children = [];
-        this.classList = { add() {} };
+        const classes = new Set();
+        this.classList = { add: name => classes.add(name), contains: name => classes.has(name) };
     }
     set innerHTML(html) {
         this.html = html;
@@ -150,10 +151,11 @@ function render(view, trial) {
         finish: data => frame.finished.push({ ...trial.data, ...data }),
         every: (ms, callback) => frame.ticks.push(callback),
     });
-    frame.expire = () => {
-        view.now += 120000;
+    frame.advance = ms => {
+        view.now += ms;
         for (const callback of frame.ticks) callback();
     };
+    frame.expire = () => frame.advance(120000);
     return frame;
 }
 
@@ -168,6 +170,29 @@ function fill(frame, text, method = 'click') {
 
 function phase1Entries(pair, concept = 1) {
     return Object.fromEntries(ROLES.map(role => [role, render(pair[role], pair[role].find('phase1', 'label', concept))]));
+}
+
+function phase1Discussions(pair, concept = 1) {
+    const entries = phase1Entries(pair, concept);
+    fill(entries.naive, 'Mein Wort');
+    fill(entries.confederate, 'Rohorgel');
+    return Object.fromEntries(ROLES.map(role =>
+        [role, render(pair[role], pair[role].find('phase1', 'discussion', concept))]));
+}
+
+function checkDiscussionCompletion(pair, frames, reasons, concept = 1) {
+    const key = 'phase1_discussion_done_c' + concept;
+    for (const role of ROLES) {
+        const frame = frames[role];
+        assert.equal(frame.finished.length, 1, 'each discussion finishes exactly once');
+        assert.equal(pair.bus.confirmations.filter(event => event.role === role && event.key === key).length, 1,
+            'each role signals this concept exactly once');
+        assert.equal(frame.finished[0].ended_by, reasons[role]);
+        assert.equal(frame.finished[0].own_label, role === 'naive' ? 'MEIN WORT' : 'ROHRORGEL');
+        assert.equal(frame.finished[0].partner_label, role === 'naive' ? 'ROHRORGEL' : 'MEIN WORT');
+        assert.doesNotMatch(frame.el.querySelector('#timer').textContent, /Richtzeit ist um/);
+        assert.equal(frame.el.querySelector('#timer').classList.contains('over'), false);
+    }
 }
 
 function prepareInput(kind, limit = 40) {
@@ -274,12 +299,15 @@ function checkPhase1(concept, expected, firstRole, pairID = 1) {
         assert.ok(discussions[role].el.innerHTML.includes(expected));
         assert.ok(discussions[role].el.innerHTML.includes('MEIN WORT'));
         assert.ok(!discussions[role].el.innerHTML.includes(typed.toUpperCase()));
-        discussions[role].expire();
-        assert.equal(discussions[role].finished.length, 0, 'countdown cannot complete discussion');
-        assert.match(discussions[role].el.querySelector('#timer').textContent, /Richtzeit ist um/);
     }
     confirmBoth(pair, discussions, '#discussion-done', 'phase1_discussion_done_c' + concept, firstRole);
-    for (const role of ROLES) assert.equal(discussions[role].finished[0].ended_by, 'both_confirmed');
+    for (const role of ROLES) {
+        assert.equal(discussions[role].finished[0].ended_by, 'confirmed');
+        discussions[role].expire();
+        assert.equal(discussions[role].finished.length, 1, 'timeout after early completion cannot finish again');
+        assert.equal(pair.bus.confirmations.filter(event => event.role === role &&
+            event.key === 'phase1_discussion_done_c' + concept).length, 1);
+    }
 
     const choices = Object.fromEntries(ROLES.map(role =>
         [role, render(pair[role], pair[role].find('phase1', 'choice', concept))]));
@@ -377,29 +405,79 @@ function run() {
     check('phase1 confirmations are fresh for each concept', () => {
         const pair = createPair();
         for (const concept of [1, 2]) {
-            const entries = phase1Entries(pair, concept);
+            const frames = phase1Discussions(pair, concept);
+            frames.naive.expire();
+            for (const role of ROLES) assert.equal(frames[role].finished.length, 0,
+                'the previous concept cannot replace this concept\'s partner signal');
+            frames.confederate.expire();
+            for (const role of ROLES) {
+                assert.equal(frames[role].finished.length, 1);
+                assert.equal(frames[role].finished[0].ended_by, 'timeout');
+            }
+        }
+        const keys = new Set(pair.bus.confirmations.map(event => event.key));
+        assert.ok(keys.has('phase1_discussion_done_c1'));
+        assert.ok(keys.has('phase1_discussion_done_c2'));
+    });
+    for (const firstRole of ROLES) {
+        const secondRole = firstRole === 'naive' ? 'confederate' : 'naive';
+        check('discussion deadlines advance without clicks despite offset starts, first=' + firstRole, () => {
+            const pair = createPair();
+            const entries = phase1Entries(pair);
             fill(entries.naive, 'Mein Wort');
-            fill(entries.confederate, 'Anderer Begriff');
-            const frames = Object.fromEntries(ROLES.map(role =>
-                [role, render(pair[role], pair[role].find('phase1', 'discussion', concept))]));
-            confirmBoth(pair, frames, '#discussion-done', 'phase1_discussion_done_c' + concept);
+            fill(entries.confederate, 'Rohorgel');
+            const duration = pair[firstRole].context.CONFIG.timing.phase1_discussion_ms;
+            const frames = {};
+            frames[firstRole] = render(pair[firstRole], pair[firstRole].find('phase1', 'discussion'));
+            pair[secondRole].now += 400;
+            frames[secondRole] = render(pair[secondRole], pair[secondRole].find('phase1', 'discussion'));
+            frames[firstRole].advance(duration - 1);
+            frames[secondRole].advance(duration - 401);
+            assert.equal(pair.bus.confirmations.filter(event => event.key === 'phase1_discussion_done_c1').length, 0,
+                'completion must wait for the configured deadline');
+            frames[firstRole].advance(1);
+            frames[secondRole].advance(1);
+            for (const role of ROLES) assert.equal(frames[role].finished.length, 0,
+                'the earlier deadline waits for the later browser');
+            assert.equal(frames[firstRole].el.querySelector('#discussion-done').disabled, true);
+            assert.equal(frames[secondRole].el.querySelector('#discussion-done').disabled, false);
+            frames[secondRole].advance(400);
+            for (const role of ROLES) {
+                frames[role].expire();
+                frames[role].el.querySelector('#discussion-done').dispatch('click');
+            }
+            checkDiscussionCompletion(pair, frames, { naive: 'timeout', confederate: 'timeout' });
+        });
+        check('one early discussion click plus partner timeout, first=' + firstRole, () => {
+            const pair = createPair();
+            const frames = phase1Discussions(pair);
+            frames[firstRole].el.querySelector('#discussion-done').click();
+            frames[firstRole].expire();
+            for (const role of ROLES) assert.equal(frames[role].finished.length, 0);
+            frames[secondRole].expire();
+            checkDiscussionCompletion(pair, frames, { [firstRole]: 'confirmed', [secondRole]: 'timeout' });
+        });
+        for (const firstTrigger of ['click', 'timeout']) {
+            check('discussion click/timeout race, first=' + firstRole + ', trigger=' + firstTrigger, () => {
+                const pair = createPair();
+                const frames = phase1Discussions(pair);
+                const reasons = {};
+                for (const [index, role] of [firstRole, secondRole].entries()) {
+                    const clickFirst = (firstTrigger === 'click') === (index === 0);
+                    const button = frames[role].el.querySelector('#discussion-done');
+                    reasons[role] = clickFirst ? 'confirmed' : 'timeout';
+                    if (clickFirst) button.dispatch('click');
+                    frames[role].expire();
+                    button.dispatch('click'); // Include queued events despite the now-disabled button.
+                    frames[role].expire();
+                    if (index === 0) {
+                        for (const other of ROLES) assert.equal(frames[other].finished.length, 0);
+                    }
+                }
+                checkDiscussionCompletion(pair, frames, reasons);
+            });
         }
-    });
-    check('discussion timeout with one confirmation cannot finish either role', () => {
-        const pair = createPair();
-        const entries = phase1Entries(pair);
-        fill(entries.naive, 'Mein Wort');
-        fill(entries.confederate, 'Rohorgel');
-        const frames = Object.fromEntries(ROLES.map(role =>
-            [role, render(pair[role], pair[role].find('phase1', 'discussion'))]));
-        frames.naive.el.querySelector('#discussion-done').click();
-        for (const role of ROLES) {
-            frames[role].expire();
-            assert.equal(frames[role].finished.length, 0);
-        }
-        frames.confederate.el.querySelector('#discussion-done').click();
-        for (const role of ROLES) assert.equal(frames[role].finished.length, 1);
-    });
+    }
     for (const firstRole of ROLES) {
         check('phase2 richtig requires both confirmations, first=' + firstRole, () => {
             const pair = createPair();

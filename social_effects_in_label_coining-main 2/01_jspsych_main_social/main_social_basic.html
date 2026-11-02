@@ -17,7 +17,7 @@
     shown on the confederate's computer.
 
     Phases:
-      1. Grounding: both enter a label -> both labels shown -> discussion + both confirm -> private choice
+      1. Grounding: both enter a label -> both labels shown -> timed discussion (or both confirm early) -> private choice
       2. Sender-receiver: naive describes the picture, confederate clicks "richtig"/"falsch" (max 3 attempts)
       3. Private naming: confederate leaves, naive names every picture again
 -->
@@ -489,8 +489,8 @@
             '<p> Überlegt euch unabhängig voneinander einen Begriff der das Bild bestmöglich beschreibt ' +
             'und gebt ihn ein. Dafür habt ihr ' + minutesText(CONFIG.timing.phase1_label_entry_ms) + ' Zeit. Sprecht dabei noch nicht miteinander.</p>' +
             '<p> Sobald ihr beide fertig seid, werden eure Begriffe gleichzeitig angezeigt. ' +
-            'Dann habt ihr ' + minutesText(CONFIG.timing.phase1_discussion_ms) + ' um miteinander zu besprechen welcher Begriff besser zu dem Bild passt. ' +
-            ' Sobald ihr fertig seid, klickt jede Person auf „Weiter“.</p>' +
+            'Dann habt ihr ' + minutesText(CONFIG.timing.phase1_discussion_ms) + ' Zeit, um miteinander zu besprechen, welcher Begriff besser zu dem Bild passt. ' +
+            'Nach Ablauf der Zeit geht es automatisch zur Auswahl weiter. Wenn ihr früher fertig seid, klickt beide auf „Weiter“.</p>' +
             '<p> Wählt anschließend auf eurem eigenen Bildschirm den Begriff aus, ' +
             'den ihr persönlich bevorzugt. Sprecht dabei nicht mehr miteinander.</p>',
             { step: 'phase1' });
@@ -546,7 +546,7 @@
             };
         }
 
-        // 2. both labels are shown, 1 minute discussion
+        // 2. both labels are shown until the discussion deadline or both confirm early
         function phase1Discussion(c) {
             return {
                 type: jsPsychPairTrial,
@@ -559,7 +559,7 @@
                         .map(function (s) {
                             return '<li>' + escapeHTML(s).replace('{own}', caps(own)).replace('{partner}', caps(partner)) + '</li>';
                         }).join('');
-                    // Both confirmations for this concept must reach the server before finishing.
+                    // Both completions (click or timeout) for this concept must reach the server before finishing.
                     var doneKey = 'phase1_discussion_done_c' + c.concept_nr;
                     var confirmed = false;
                     el.innerHTML = screen(
@@ -574,19 +574,20 @@
                         timerHTML() +
                         '<button class="btn" id="discussion-done">Weiter (wir sind fertig)</button>');
                     var button = el.querySelector('#discussion-done');
-                    button.addEventListener('click', function () {
+                    function completeDiscussion(reason) {
                         if (confirmed) return;
                         confirmed = true;
                         button.disabled = true;
                         button.textContent = 'Warte auf deinen Partner …';
                         PairSync.waitForPartner(doneKey, function () {
-                            ctx.finish({ own_label: own, partner_label: partner, ended_by: 'both_confirmed' });
+                            ctx.finish({ own_label: own, partner_label: partner, ended_by: reason });
                         });
+                    }
+                    button.addEventListener('click', function () {
+                        completeDiscussion('confirmed');
                     });
                     startCountdown(ctx, el, CONFIG.timing.phase1_discussion_ms, function () {
-                        var timer = el.querySelector('#timer');
-                        timer.classList.add('over');
-                        timer.textContent = 'Die Richtzeit ist um – klickt beide auf „Weiter“, sobald ihr fertig seid.';
+                        completeDiscussion('timeout');
                     });
                 },
             };
@@ -690,8 +691,7 @@
                 '<p>Deine Aufgabe ist es, einen Begriff einzugeben, der dein Bild möglichst gut beschreibt, ' +
                 'damit dein Partner das richtige Bild auswählen kann.</p>' +
                 '<p>Nach jeder Auswahl erfahrt ihr, ob das richtige Bild ausgewählt wurde.</p>' +
-                '<p>Ihr habt maximal ' + CONFIG.phase2_max_attempts + ' Versuche pro Bild. Bei einer falschen Auswahl kannst du ' +
-                'deinen Begriff verändern oder genauer beschreiben.</p>', { step: 'phase2' });
+                '<p>Ihr habt maximal ' + CONFIG.phase2_max_attempts + ' Versuche pro Bild.</p>', { step: 'phase2' });
 
         function feedbackHTML(feedback, isLast) {
             var ok = feedback === 'richtig';
