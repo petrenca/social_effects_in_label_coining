@@ -17,7 +17,7 @@
     shown on the confederate's computer.
 
     Phases:
-      1. Grounding: both enter a label -> both labels shown -> 1 min discussion -> private choice
+      1. Grounding: both enter a label -> both labels shown -> discussion + both confirm -> private choice
       2. Sender-receiver: naive describes the picture, confederate clicks "richtig"/"falsch" (max 3 attempts)
       3. Private naming: confederate leaves, naive names every picture again
 -->
@@ -38,14 +38,19 @@
     <script src="resources/pair_sync.js"></script>
 
     <style>
-        .screen { max-width: 900px; margin: 0 auto; text-align: center; }
+        .screen { max-width: 900px; width: 100%; box-sizing: border-box; margin: 0 auto; text-align: center;
+                  overflow-wrap: anywhere; }
         .screen img.stim { max-height: 45vh; max-width: 100%; border-radius: 6px; }
         .instructions { max-width: 760px; text-align: left; line-height: 1.5; }
-        .label-input { font-size: 22px; padding: 6px 10px; width: 320px; }
+        .label-input { font-size: 22px; padding: 6px 10px; width: 320px; max-width: 100%; box-sizing: border-box; }
+        .input-hint { color: #555; font-size: 16px; }
+        .input-error { color: #c62828; }
         .btn { font-size: 18px; padding: 8px 20px; margin: 8px; cursor: pointer; }
-        .labels { display: flex; justify-content: center; gap: 40px; margin: 16px 0; }
-        .labels div { min-width: 220px; }
-        .labels .word { font-size: 28px; font-weight: bold; }
+        .labels { display: flex; flex-wrap: wrap; justify-content: center; gap: 24px; margin: 16px 0; }
+        .labels > div { flex: 1 1 220px; min-width: 0; max-width: 100%; }
+        .labels .word { font-size: 28px; font-weight: bold; overflow-wrap: anywhere; }
+        .label-choice { max-width: 100%; box-sizing: border-box; white-space: normal; overflow-wrap: anywhere; }
+        @media (max-width: 560px) { .labels > div { flex-basis: 100%; } }
         .timer { font-size: 20px; color: #555; margin-top: 10px; }
         .timer.over { color: #c62828; }
         .feedback { font-size: 26px; font-weight: bold; margin: 20px; }
@@ -143,6 +148,15 @@
         return String(s || '').trim().toLowerCase();
     }
 
+    function submittedLabel(s) {
+        return String(s || '').trim().toUpperCase();
+    }
+
+    function textInputMaxLength() {
+        var limit = CONFIG.text_input_max_length;
+        return Number.isInteger(limit) && limit > 0 ? limit : 40;
+    }
+
     // Same order on both computers without communication: shuffle seeded by pair ID and phase.
     function seededShuffle(array, seed) {
         var a = array.slice();
@@ -157,6 +171,20 @@
             var tmp = a[i]; a[i] = a[j]; a[j] = tmp;
         }
         return a;
+    }
+
+    // 20 concepts in a full phase: 16 targets and 4 fillers, with target-only edges.
+    // A small &n= test subset may lack enough targets to reserve both edges.
+    function orderConcepts(concepts, seed) {
+        var edge = CONFIG.filler_free_edge_trials;
+        if (!Number.isInteger(edge) || edge < 0) edge = 3;
+        var targets = seededShuffle(concepts.filter(function (c) { return !c.is_filler; }), seed);
+        if (targets.length < 2 * edge) return seededShuffle(concepts, seed);
+        var fillers = concepts.filter(function (c) { return c.is_filler; });
+        var start = targets.slice(0, edge);
+        var end = targets.slice(targets.length - edge);
+        var middle = targets.slice(edge, targets.length - edge).concat(fillers);
+        return start.concat(seededShuffle(middle, seed ^ 0x9E3779B9), end);
     }
 
     function minutesText(ms) {
@@ -201,9 +229,9 @@
         // responses of both participants, filled during the experiment, by concept_nr
         var phase1 = {};   // { naive_label, confederate_label, naive_choice, confederate_choice }
 
-        // the label the confederate actually entered in phase 1 (falls back to the scripted one)
+        // The assigned label is authoritative; manual entry remains a separate diagnostic.
         function confederateLabel(c) {
-            return (phase1[c.concept_nr] && phase1[c.concept_nr].confederate_label) || c.scripted_label;
+            return submittedLabel(c.scripted_label);
         }
 
         function conceptData(c) {
@@ -214,6 +242,7 @@
                 is_filler: c.is_filler,
                 label_goodness: c.label_goodness,
                 scripted_confederate_label: c.scripted_label,
+                confederate_label: confederateLabel(c),
             };
         }
 
@@ -261,19 +290,43 @@
         // text input (shown in capitals) + "Weiter" button; onSubmit(text) is called once with the
         // trimmed input in capitals, i.e. as the participant saw it
         function labelInputHTML() {
+            var limit = textInputMaxLength();
             return '<p><input class="label-input" id="label-input" type="text" autocomplete="off" spellcheck="false" ' +
-                'style="text-transform: uppercase"></p>' +
-                '<button class="btn" id="label-submit" disabled>Weiter</button>';
+                'maxlength="' + limit + '" aria-describedby="label-hint label-error" style="text-transform: uppercase"></p>' +
+                '<p class="input-hint" id="label-hint">Maximal ' + limit + ' Zeichen</p>' +
+                '<p class="input-error" id="label-error" role="alert"></p>' +
+                '<button class="btn" id="label-submit" type="button" disabled>Weiter</button>';
         }
         function onLabelSubmit(el, onSubmit) {
             var input = el.querySelector('#label-input');
             var btn = el.querySelector('#label-submit');
+            var error = el.querySelector('#label-error');
+            var submitted = false;
             input.focus();
-            input.addEventListener('input', function () { btn.disabled = input.value.trim() === ''; });
-            input.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !btn.disabled) btn.click(); });
+            input.addEventListener('input', function () {
+                error.textContent = '';
+                btn.disabled = submitted || input.value.trim() === '';
+            });
+            input.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (!btn.disabled) btn.click();
+                }
+            });
             btn.addEventListener('click', function () {
+                if (submitted) return;
+                var label = submittedLabel(input.value);
+                if (!label || label.length > textInputMaxLength()) {
+                    error.textContent = !label ? 'Bitte gib einen Begriff ein.' :
+                        'Bitte kürze deinen Begriff auf maximal ' + textInputMaxLength() +
+                        ' Zeichen (einschließlich der Großschreibung).';
+                    input.focus();
+                    return;
+                }
+                submitted = true;
                 btn.disabled = true;
-                onSubmit(input.value.trim().toUpperCase());
+                input.disabled = true;
+                onSubmit(label);
             });
         }
 
@@ -384,8 +437,9 @@
             '<p><b>Begriff eingeben:</b> Überlegt euch unabhängig voneinander einen passenden Begriff für das Bild ' +
             'und gebt ihn ein. Dafür habt ihr ' + minutesText(CONFIG.timing.phase1_label_entry_ms) + ' Zeit. Sprecht dabei noch nicht miteinander.</p>' +
             '<p><b>Begriffe besprechen:</b> Sobald ihr beide fertig seid, werden eure Begriffe gleichzeitig angezeigt. ' +
-            'Ihr habt dann ' + minutesText(CONFIG.timing.phase1_discussion_ms) + ' Zeit, euch darüber auszutauschen und zu versuchen, ' +
-            'euch auf einen Begriff zu einigen. Wenn ihr schon früher fertig seid, könnt ihr auf „Weiter“ klicken.</p>' +
+            'Die Richtzeit für die Diskussion ist ' + minutesText(CONFIG.timing.phase1_discussion_ms) + '. Versucht, ' +
+            'euch auf einen Begriff zu einigen. Sobald ihr fertig seid, klickt jede Person auf „Weiter“. ' +
+            'Es geht erst weiter, wenn ihr beide bestätigt habt.</p>' +
             '<p><b>Individuelle Entscheidung:</b> Wählt anschließend auf eurem eigenen Bildschirm den Begriff aus, ' +
             'den ihr persönlich bevorzugt. Sprecht dabei nicht mehr miteinander.</p>',
             { step: 'phase1' });
@@ -401,6 +455,7 @@
                     PairSync.waitForPartner('phase1_start_c' + c.concept_nr, function () {
                         var t0 = performance.now();
                         var timeExceeded = false;
+                        var labelSubmitted = false;
                         el.innerHTML = screen(
                             confPanel(confHeader(c) + '<br>Bitte diesen Begriff eingeben: <b style="font-size:20px">' +
                                 caps(c.scripted_label) + '</b>') +
@@ -408,21 +463,31 @@
                             '<p>Welcher Begriff beschreibt dieses Bild am besten?</p>' +
                             labelInputHTML() + timerHTML());
                         startCountdown(ctx, el, CONFIG.timing.phase1_label_entry_ms, function () {
+                            if (labelSubmitted) return;
                             timeExceeded = true;
                             var t = el.querySelector('#timer');
                             t.classList.add('over');
                             t.textContent = 'Die Zeit ist um – bitte gib jetzt deinen Begriff ein.';
                         });
                         onLabelSubmit(el, function (label) {
+                            labelSubmitted = true;
                             var rt = Math.round(performance.now() - t0);
                             showWaiting(el, 'Warte auf die Eingabe deines Partners …');
                             PairSync.sendValue('phase1_label_c' + c.concept_nr, label);
                             PairSync.getPartnerValue('phase1_label_c' + c.concept_nr, function (partnerLabel) {
+                                var typed = isConf ? label : partnerLabel;
                                 phase1[c.concept_nr] = {
                                     naive_label: isConf ? partnerLabel : label,
-                                    confederate_label: isConf ? label : partnerLabel,
+                                    confederate_label: confederateLabel(c),
+                                    confederate_typed_label: typed,
+                                    confederate_label_mismatch: normalize(typed) !== normalize(confederateLabel(c)),
                                 };
-                                ctx.finish({ response: label, partner_label: partnerLabel, rt: rt, time_exceeded: timeExceeded });
+                                ctx.finish({
+                                    response: label, partner_label: partnerLabel, rt: rt, time_exceeded: timeExceeded,
+                                    confederate_label: confederateLabel(c),
+                                    confederate_typed_label: typed,
+                                    confederate_label_mismatch: phase1[c.concept_nr].confederate_label_mismatch,
+                                });
                             });
                         });
                     });
@@ -443,13 +508,9 @@
                         .map(function (s) {
                             return '<li>' + escapeHTML(s).replace('{own}', caps(own)).replace('{partner}', caps(partner)) + '</li>';
                         }).join('');
-                    // either participant can end the discussion early; the other screen follows
+                    // Both confirmations for this concept must reach the server before finishing.
                     var doneKey = 'phase1_discussion_done_c' + c.concept_nr;
-                    var stopWatching = null;
-                    var end = function (endedBy) {
-                        if (stopWatching) stopWatching();
-                        ctx.finish({ own_label: own, partner_label: partner, ended_by: endedBy });
-                    };
+                    var confirmed = false;
                     el.innerHTML = screen(
                         confPanel(confHeader(c) + '<br>Am Ende wählen: <b>' +
                             caps(phase1ConfederateChoice(c, own, partner)) + '</b><ul>' + phrases + '</ul>') +
@@ -461,12 +522,21 @@
                         '<p>Sprecht jetzt miteinander und versucht, euch auf einen gemeinsamen Begriff zu einigen.</p>' +
                         timerHTML() +
                         '<button class="btn" id="discussion-done">Weiter (wir sind fertig)</button>');
-                    stopWatching = PairSync.getPartnerValue(doneKey, function () { end('partner'); });
-                    el.querySelector('#discussion-done').addEventListener('click', function () {
-                        PairSync.sendValue(doneKey, true);
-                        end('self');
+                    var button = el.querySelector('#discussion-done');
+                    button.addEventListener('click', function () {
+                        if (confirmed) return;
+                        confirmed = true;
+                        button.disabled = true;
+                        button.textContent = 'Warte auf deinen Partner …';
+                        PairSync.waitForPartner(doneKey, function () {
+                            ctx.finish({ own_label: own, partner_label: partner, ended_by: 'both_confirmed' });
+                        });
                     });
-                    startCountdown(ctx, el, CONFIG.timing.phase1_discussion_ms, function () { end('timeout'); });
+                    startCountdown(ctx, el, CONFIG.timing.phase1_discussion_ms, function () {
+                        var timer = el.querySelector('#timer');
+                        timer.classList.add('over');
+                        timer.textContent = 'Die Richtzeit ist um – klickt beide auf „Weiter“, sobald ihr fertig seid.';
+                    });
                 },
             };
         }
@@ -490,11 +560,11 @@
                     el.innerHTML = screen(
                         confPanel(confHeader(c) + '<br>Bitte wählen: <b>' + caps(scripted) + '</b> (markiert)') +
                         imageHTML(c) +
-                        '<p><b>Die Minute ist vorbei.</b> Wählt jetzt, ohne weiter miteinander zu sprechen, ' +
+                        '<p><b>Die Diskussion ist abgeschlossen.</b> Wählt jetzt, ohne weiter miteinander zu sprechen, ' +
                         'den Begriff, den ihr persönlich bevorzugt.</p>' +
                         options.map(function (o, i) {
                             var rec = isConf && (o.source === 'own') === confederateInsists(c);
-                            return '<button class="btn' + (rec ? ' recommended' : '') + '" data-i="' + i + '">' +
+                            return '<button class="btn label-choice' + (rec ? ' recommended' : '') + '" data-i="' + i + '">' +
                                 '<span style="font-size:22px"><b>' + caps(o.label) + '</b></span><br><small>(' + o.caption + ')</small></button>';
                         }).join(''));
                     el.querySelectorAll('button[data-i]').forEach(function (btn) {
@@ -543,7 +613,7 @@
             };
         }
 
-        var phase1_trials = seededShuffle(concepts, pairID * 10 + 1).map(function (c) {
+        var phase1_trials = orderConcepts(concepts, pairID * 10 + 1).map(function (c) {
             var t = [phase1Label(c), phase1Discussion(c), phase1Choice(c)];
             if (CONFIG.phase1_reveal_choices) t.push(phase1Reveal(c));
             return { timeline: t };
@@ -594,17 +664,23 @@
                         st.attempt = attempt;
                         st.done = feedback === 'richtig';
                         el.innerHTML = screen((isConf ? '' : imageHTML(c)) + feedbackHTML(feedback, isLast));
-                        // each participant moves on with "Weiter"; the confederate's next screen
-                        // simply waits until the naive participant has entered the next description
-                        el.querySelector('#feedback-next').addEventListener('click', function () {
-                            ctx.finish(Object.assign({
-                                attempt: attempt,
-                                description: term,
-                                feedback: feedback,
-                                confederate_label: confederateLabel(c),
-                                uses_confederate_label: normalize(term) === normalize(confederateLabel(c)),
-                                rt: rt,
-                            }, extra));
+                        var nextButton = el.querySelector('#feedback-next');
+                        var confirmed = false;
+                        nextButton.addEventListener('click', function () {
+                            if (confirmed) return;
+                            confirmed = true;
+                            nextButton.disabled = true;
+                            nextButton.textContent = 'Warte auf deinen Partner …';
+                            PairSync.waitForPartner('phase2_feedback_done_' + key, function () {
+                                ctx.finish(Object.assign({
+                                    attempt: attempt,
+                                    description: term,
+                                    feedback: feedback,
+                                    confederate_label: confederateLabel(c),
+                                    uses_confederate_label: normalize(term) === normalize(confederateLabel(c)),
+                                    rt: rt,
+                                }, extra));
+                            });
                         });
                     };
 
@@ -661,7 +737,7 @@
             };
         }
 
-        var phase2_trials = seededShuffle(concepts, pairID * 10 + 2).map(phase2Concept);
+        var phase2_trials = orderConcepts(concepts, pairID * 10 + 2).map(phase2Concept);
 
         //-------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
         //----------------------Phase 3 - Private naming (naive participant only)---------------------------------------------------------------------------------------------------//
@@ -718,7 +794,7 @@
         }
 
         var phase3 = {
-            timeline: [phase3_instructions].concat(jsPsych.randomization.shuffle(concepts).map(phase3Naming)),
+            timeline: [phase3_instructions].concat(orderConcepts(concepts, pairID * 10 + 3).map(phase3Naming)),
             conditional_function: function () { return !isConf; },
         };
 

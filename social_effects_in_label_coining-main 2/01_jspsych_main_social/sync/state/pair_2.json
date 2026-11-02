@@ -1,0 +1,126 @@
+{
+    "confederate": {
+        "joined": {
+            "value": "mvsek3jtbe8oagb908u",
+            "t": 1793209367817
+        },
+        "ack": {
+            "value": "mvsek4tvkldxbbxo60c",
+            "t": 1793209369889
+        },
+        "step_phase1_start_c14": {
+            "value": true,
+            "t": 1793209387296
+        },
+        "phase1_label_c14": {
+            "value": "SKLDNF",
+            "t": 1793209408434
+        },
+        "step_phase1_discussion_done_c14": {
+            "value": true,
+            "t": 1793209426887
+        },
+        "phase1_choice_c14": {
+            "value": "LKFWEFLH",
+            "t": 1793209430665
+        },
+        "step_phase1_start_c13": {
+            "value": true,
+            "t": 1793209439088
+        },
+        "phase1_label_c13": {
+            "value": "SKSKLD",
+            "t": 1793209450227
+        },
+        "step_phase1_discussion_done_c13": {
+            "value": true,
+            "t": 1793209456474
+        },
+        "phase1_choice_c13": {
+            "value": "LIWEFN",
+            "t": 1793209462944
+        },
+        "phase2_feedback_c13_a1": {
+            "value": "richtig",
+            "t": 1793209484400
+        },
+        "step_phase2_feedback_done_c13_a1": {
+            "value": true,
+            "t": 1793209485810
+        },
+        "phase2_feedback_c14_a1": {
+            "value": "richtig",
+            "t": 1793209495431
+        },
+        "step_phase2_feedback_done_c14_a1": {
+            "value": true,
+            "t": 1793209496434
+        },
+        "step_phase2_end": {
+            "value": true,
+            "t": 1793209498272
+        }
+    },
+    "naive": {
+        "joined": {
+            "value": "mvsek4tvkldxbbxo60c",
+            "t": 1793209369505
+        },
+        "ack": {
+            "value": "mvsek3jtbe8oagb908u",
+            "t": 1793209369520
+        },
+        "step_phase1_start_c14": {
+            "value": true,
+            "t": 1793209385457
+        },
+        "phase1_label_c14": {
+            "value": "LKFWEFLH",
+            "t": 1793209398648
+        },
+        "step_phase1_discussion_done_c14": {
+            "value": true,
+            "t": 1793209423433
+        },
+        "phase1_choice_c14": {
+            "value": "GEHSTOCK",
+            "t": 1793209432891
+        },
+        "step_phase1_start_c13": {
+            "value": true,
+            "t": 1793209441193
+        },
+        "phase1_label_c13": {
+            "value": "LIWEFN",
+            "t": 1793209452152
+        },
+        "step_phase1_discussion_done_c13": {
+            "value": true,
+            "t": 1793209459059
+        },
+        "phase1_choice_c13": {
+            "value": "KAKTUS",
+            "t": 1793209464355
+        },
+        "phase2_term_c13_a1": {
+            "value": "KDNLWK",
+            "t": 1793209479399
+        },
+        "step_phase2_feedback_done_c13_a1": {
+            "value": true,
+            "t": 1793209487375
+        },
+        "phase2_term_c14_a1": {
+            "value": "RICHTIG",
+            "t": 1793209491992
+        },
+        "step_phase2_feedback_done_c14_a1": {
+            "value": true,
+            "t": 1793209497848
+        },
+        "step_phase2_end": {
+            "value": true,
+            "t": 1793209497885
+        }
+    }
+}

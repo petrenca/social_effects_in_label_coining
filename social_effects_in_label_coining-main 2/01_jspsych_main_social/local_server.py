@@ -3,6 +3,7 @@
 Run on ONE of the two lab computers (start_local.bat does this):
     py local_server.py            (port 8000)
     py local_server.py 8080       (other port)
+    py local_server.py --open    (open the browser after successful startup)
 
 It serves this folder and answers the same requests as the PHP scripts on the HU server:
     sync/sync.php                 shared pair store (actions get / set / join, see sync/sync.php)
@@ -15,12 +16,14 @@ The other computer connects over the local network via the address printed at st
 Windows asks once whether Python may accept network connections: allow it for private networks.
 Only standard library, no packages to install.
 """
+import argparse
 import json
 import re
 import socket
 import sys
 import threading
 import time
+import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -115,14 +118,38 @@ def lan_ip():
         return socket.gethostbyname(socket.gethostname())
 
 
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Local server for the two-computer experiment.")
+    parser.add_argument("port", nargs="?", type=int, default=8000)
+    parser.add_argument("--open", action="store_true", dest="open_browser")
+    args = parser.parse_args(argv)
+
+    # Binding can fail (for example, if the port is in use). Do not open a browser
+    # until this succeeds; the launcher's console keeps any startup error visible.
+    with ThreadingHTTPServer(("0.0.0.0", args.port), Handler) as server:
+        port = server.server_port
+        ip = lan_ip()
+        print("Experiment server running. Close this window to stop it.\n")
+        print(f"  this computer:   http://localhost:{port}/main_social_basic.html")
+        print(f"  other computer:  http://{ip}:{port}/main_social_basic.html\n")
+        browser_timer = None
+        if args.open_browser:
+            browser_timer = threading.Timer(
+                0.5,
+                webbrowser.open,
+                args=(f"http://localhost:{port}/main_social_basic.html",),
+            )
+            browser_timer.daemon = True
+            browser_timer.start()
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            if browser_timer is not None:
+                browser_timer.cancel()
+    return 0
+
+
 if __name__ == "__main__":
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
-    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
-    ip = lan_ip()
-    print("Experiment server running. Close this window to stop it.\n")
-    print(f"  this computer:   http://localhost:{port}/main_social_basic.html")
-    print(f"  other computer:  http://{ip}:{port}/main_social_basic.html\n")
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
+    sys.exit(main())

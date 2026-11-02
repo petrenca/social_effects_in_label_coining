@@ -71,26 +71,41 @@ var PairSync = {
     // Returns a function that stops waiting (the callback is then never called).
     getPartnerValue: function (key, callback) {
         var self = this;
-        var cancelled = false;
+        var stopped = false;
         (function poll() {
-            if (cancelled) return;
+            if (stopped) return;
             self._post({ action: 'get' }, function (state) {
-                if (cancelled) return;
+                if (stopped) return;
                 var partner = state[self.partnerRole()] || {};
-                if (partner.hasOwnProperty(key)) callback(partner[key].value);
-                else setTimeout(poll, self._pollMs());
+                if (Object.prototype.hasOwnProperty.call(partner, key)) {
+                    stopped = true;
+                    callback(partner[key].value);
+                } else setTimeout(poll, self._pollMs());
             });
         })();
-        return function () { cancelled = true; };
+        return function () { stopped = true; };
     },
 
     // Barrier: mark this browser as having reached `step` and call callback() once the
-    // partner has reached it too.
+    // partner has reached it too. The local write must be acknowledged by the server first;
+    // failed writes and reads keep retrying rather than releasing either browser locally.
+    // Returns a function that stops waiting, including while the local write is in flight.
     waitForPartner: function (step, callback) {
         var self = this;
+        var active = true;
+        var stopWaiting = null;
         self.sendValue('step_' + step, true, function () {
-            self.getPartnerValue('step_' + step, function () { callback(); });
+            if (!active) return;
+            stopWaiting = self.getPartnerValue('step_' + step, function () {
+                if (!active) return;
+                active = false;
+                callback();
+            });
         });
+        return function () {
+            active = false;
+            if (stopWaiting) stopWaiting();
+        };
     },
 
     //---------------------------------------------------------------------------- internals
@@ -114,8 +129,9 @@ var PairSync = {
             .then(function (json) {
                 self._setOffline(false);
                 onSuccess(json);
-            })
-            .catch(function (err) {
+            }, function (err) {
+                // Retry transport/JSON failures only. An exception in a trial's callback must
+                // never replay an already successful write or complete the trial a second time.
                 console.warn('PairSync: ' + params.action + ' failed, retrying', err);
                 self._setOffline(true);
                 setTimeout(function () { self._post(params, onSuccess); }, self._pollMs());
