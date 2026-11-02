@@ -423,8 +423,8 @@
         var general_intro = instructions(
             '<h2>Willkommen zum Experiment!</h2>' +
             '<p>In dieser Studie geht es darum, Bilder zu benennen und passende Begriffe dafür zu finden. ' +
-            'Eure Begriffe müssen nicht unbedingt bereits existierende Wörter sein. Wichtig ist, dass sie das Bild ' +
-            'eurer Meinung nach gut beschreiben.</p>' +
+            'Eure Begriffe müssen nicht unbedingt bereits existierende Wörter sein. Wichtig ist, dass sie die Bilder, ' +
+            'eurer Meinung nach, bestmöglich beschreiben.</p>' +
             '<p>Die Anweisungen für jeden Teil werden euch auf dem Bildschirm angezeigt.</p>' +
             '<p>Klickt auf „Weiter“, wenn ihr bereit seid.</p>');
 
@@ -434,13 +434,12 @@
         var phase1_instructions = instructions(
             '<h2>Teil 1: Gemeinsame Begriffsfindung</h2>' +
             '<p>Ihr seht beide dasselbe Bild auf eurem Bildschirm.</p>' +
-            '<p><b>Begriff eingeben:</b> Überlegt euch unabhängig voneinander einen passenden Begriff für das Bild ' +
+            '<p> Überlegt euch unabhängig voneinander einen Begriff der das Bild bestmöglich beschreibt ' +
             'und gebt ihn ein. Dafür habt ihr ' + minutesText(CONFIG.timing.phase1_label_entry_ms) + ' Zeit. Sprecht dabei noch nicht miteinander.</p>' +
-            '<p><b>Begriffe besprechen:</b> Sobald ihr beide fertig seid, werden eure Begriffe gleichzeitig angezeigt. ' +
-            'Die Richtzeit für die Diskussion ist ' + minutesText(CONFIG.timing.phase1_discussion_ms) + '. Versucht, ' +
-            'euch auf einen Begriff zu einigen. Sobald ihr fertig seid, klickt jede Person auf „Weiter“. ' +
-            'Es geht erst weiter, wenn ihr beide bestätigt habt.</p>' +
-            '<p><b>Individuelle Entscheidung:</b> Wählt anschließend auf eurem eigenen Bildschirm den Begriff aus, ' +
+            '<p> Sobald ihr beide fertig seid, werden eure Begriffe gleichzeitig angezeigt. ' +
+            'Dann habt ihr ' + minutesText(CONFIG.timing.phase1_discussion_ms) + ' um miteinander zu besprechen welcher Begriff besser zu dem Bild passt. ' +
+            ' Sobald ihr fertig seid, klickt jede Person auf „Weiter“.</p>' +
+            '<p> Wählt anschließend auf eurem eigenen Bildschirm den Begriff aus, ' +
             'den ihr persönlich bevorzugt. Sprecht dabei nicht mehr miteinander.</p>',
             { step: 'phase1' });
 
