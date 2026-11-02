@@ -220,7 +220,7 @@ function checkInputValidation(kind) {
     for (const method of ['click', 'enter']) {
         const exact = prepareInput(kind);
         assert.equal(exact.frame.el.querySelector('#label-input').maxLength, 40);
-        assert.match(exact.frame.el.innerHTML, /Maximal 40 Zeichen/);
+        assert.doesNotMatch(exact.frame.el.innerHTML, /Maximal 40 Zeichen/);
         const exactButton = exact.frame.el.querySelector('#label-submit');
         fill(exact.frame, 'x'.repeat(40), method);
         exactButton.dispatch('click');
@@ -251,7 +251,7 @@ function checkInputValidation(kind) {
     }
     const shorter = prepareInput(kind, 7);
     assert.equal(shorter.frame.el.querySelector('#label-input').maxLength, 7);
-    assert.match(shorter.frame.el.innerHTML, /Maximal 7 Zeichen/);
+    assert.doesNotMatch(shorter.frame.el.innerHTML, /Maximal 7 Zeichen/);
     fill(shorter.frame, 'abcdefgh');
     assert.equal(shorter.accepted(), 0);
     fill(shorter.frame, 'abcdefg', 'enter');
@@ -479,6 +479,53 @@ function run() {
         }
     }
     for (const firstRole of ROLES) {
+        check('phase2 task waits for both instruction confirmations, first=' + firstRole, () => {
+            const pair = createPair();
+            const secondRole = firstRole === 'naive' ? 'confederate' : 'naive';
+            const steps = {};
+            for (const role of ROLES) {
+                const view = pair[role];
+                const index = view.timeline.findIndex(node =>
+                    node.data?.phase === 'instructions' && node.data?.step === 'phase2');
+                assert.ok(index >= 0, 'Phase 2 instructions must be on the real timeline');
+                assert.equal(view.timeline[index].type, 'html-button-response');
+                assert.deepEqual(Array.from(view.timeline[index].choices), ['Weiter']);
+                const gate = view.find('phase2', 'instructions_ready', null);
+                assert.equal(view.timeline[index + 1], gate,
+                    'clicking Weiter must enter the shared readiness gate');
+                assert.equal(gate.type, 'pair-trial');
+                const task = view.timeline[index + 2]?.timeline?.[0];
+                assert.equal(task?.data?.phase, 'phase2');
+                assert.equal(task?.data?.step, 'attempt',
+                    'the first task must follow the gate');
+                steps[role] = { gate, task };
+            }
+            assert.equal(pair.bus.confirmations.length, 0,
+                'reading instructions alone cannot mark a role ready');
+            // The standard button trial enters its next timeline node only after Weiter.
+            const first = render(pair[firstRole], steps[firstRole].gate);
+            assert.equal(first.finished.length, 0,
+                'the first reader must wait while the partner remains on instructions');
+            assert.match(first.el.innerHTML, /Warte/);
+            assert.equal(first.el.querySelector('#label-input'), null);
+            assert.equal(pair.bus.sent.length, 0, 'the task has not sent any response');
+            assert.deepEqual(pair.bus.confirmations, [{ role: firstRole, key: 'phase2_instructions_done' }]);
+            const second = render(pair[secondRole], steps[secondRole].gate);
+            for (const frame of [first, second]) {
+                assert.equal(frame.finished.length, 1, 'both readers are released exactly once');
+                frame.expire();
+                assert.equal(frame.finished.length, 1);
+            }
+            for (const role of ROLES) {
+                assert.equal(pair.bus.confirmations.filter(event =>
+                    event.role === role && event.key === 'phase2_instructions_done').length, 1);
+            }
+            const taskFrames = Object.fromEntries(ROLES.map(role =>
+                [role, render(pair[role], steps[role].task)]));
+            assert.ok(taskFrames.naive.el.querySelector('#label-input'),
+                'the participant task becomes available after both readers are ready');
+            assert.match(taskFrames.confederate.el.innerHTML, /Warte auf den Begriff der VP/);
+        });
         check('phase2 richtig requires both confirmations, first=' + firstRole, () => {
             const pair = createPair();
             phase2Feedback(pair, 1, 'richtig', 1, firstRole, true);

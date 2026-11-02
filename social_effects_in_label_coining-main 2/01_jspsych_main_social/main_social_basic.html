@@ -43,7 +43,6 @@
         .screen img.stim { max-height: 45vh; max-width: 100%; border-radius: 6px; }
         .instructions { max-width: 760px; text-align: left; line-height: 1.5; }
         .label-input { font-size: 22px; padding: 6px 10px; width: 320px; max-width: 100%; box-sizing: border-box; }
-        .input-hint { color: #555; font-size: 16px; }
         .input-error { color: #c62828; }
         .btn { font-size: 18px; padding: 8px 20px; margin: 8px; cursor: pointer; }
         .labels { display: flex; flex-wrap: wrap; justify-content: center; gap: 24px; margin: 16px 0; }
@@ -322,8 +321,7 @@
         function labelInputHTML() {
             var limit = textInputMaxLength();
             return '<p><input class="label-input" id="label-input" type="text" autocomplete="off" spellcheck="false" ' +
-                'maxlength="' + limit + '" aria-describedby="label-hint label-error" style="text-transform: uppercase"></p>' +
-                '<p class="input-hint" id="label-hint">Maximal ' + limit + ' Zeichen</p>' +
+                'maxlength="' + limit + '" aria-describedby="label-error" style="text-transform: uppercase"></p>' +
                 '<p class="input-error" id="label-error" role="alert"></p>' +
                 '<button class="btn" id="label-submit" type="button" disabled>Weiter</button>';
         }
@@ -484,7 +482,6 @@
         //----------------------Phase 1 - Grounding (shared)------------------------------------------------------------------------------------------------------------------------//
         //-------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
         var phase1_instructions = instructions(
-            '<h2>Teil 1: Gemeinsame Begriffsfindung</h2>' +
             '<p>Ihr seht beide dasselbe Bild auf eurem Bildschirm.</p>' +
             '<p> Überlegt euch unabhängig voneinander einen Begriff der das Bild bestmöglich beschreibt ' +
             'und gebt ihn ein. Dafür habt ihr ' + minutesText(CONFIG.timing.phase1_label_entry_ms) + ' Zeit. Sprecht dabei noch nicht miteinander.</p>' +
@@ -518,7 +515,7 @@
                             timeExceeded = true;
                             var t = el.querySelector('#timer');
                             t.classList.add('over');
-                            t.textContent = 'Die Zeit ist um – bitte gib jetzt deinen Begriff ein.';
+                            t.textContent = 'Die Zeit ist um. Bitte gib jetzt deinen Begriff ein.';
                         });
                         onLabelSubmit(el, function (label) {
                             labelSubmitted = true;
@@ -570,7 +567,7 @@
                         '<div>Dein Begriff<div class="word">' + caps(own) + '</div></div>' +
                         '<div>Begriff deines Partners<div class="word">' + caps(partner) + '</div></div>' +
                         '</div>' +
-                        '<p>Sprecht jetzt miteinander und besprecht, welcher Begriff besser zu dem Bild passt. .</p>' +
+                        '<p>Sprecht jetzt miteinander und besprecht, welcher Begriff besser zu dem Bild passt.</p>' +
                         timerHTML() +
                         '<button class="btn" id="discussion-done">Weiter (wir sind fertig)</button>');
                     var button = el.querySelector('#discussion-done');
@@ -612,7 +609,7 @@
                     el.innerHTML = screen(
                         confPanel(confHeader(c) + '<br>Bitte wählen: <b>' + caps(scripted) + '</b> (markiert)') +
                         imageHTML(c) +
-                        '<p><b>Die Diskussion ist abgeschlossen.</b> Wählt jetzt, ohne weiter miteinander zu sprechen, ' +
+                        '<p><b style="color:#c62828">Die Diskussion ist abgeschlossen.</b> Wählt jetzt, ohne weiter miteinander zu sprechen, ' +
                         'den Begriff, den ihr persönlich bevorzugt.</p>' +
                         options.map(function (o, i) {
                             var rec = isConf && (o.source === 'own') === confederateInsists(c);
@@ -685,13 +682,22 @@
                 '<p>Assertive: „Falsch“, bis die VP deinen Begriff aus Teil 1 verwendet. Compliant: sofort „Richtig“. ' +
                 'Bei Fillern umgekehrt.</p>', { step: 'phase2' })
             : instructions(
-                '<h2>Teil 2: Bilder erkennen</h2>' +
                 '<p>Jetzt geht es darum, Bilder mithilfe von Begriffen richtig zu erkennen.</p>' +
                 '<p>Du siehst jeweils ein Bild auf deinem Bildschirm. Dein Partner sieht mehrere ähnliche Bilder, darunter auch deines.</p>' +
                 '<p>Deine Aufgabe ist es, einen Begriff einzugeben, der dein Bild möglichst gut beschreibt, ' +
                 'damit dein Partner das richtige Bild auswählen kann.</p>' +
                 '<p>Nach jeder Auswahl erfahrt ihr, ob das richtige Bild ausgewählt wurde.</p>' +
                 '<p>Ihr habt maximal ' + CONFIG.phase2_max_attempts + ' Versuche pro Bild.</p>', { step: 'phase2' });
+
+        // Reached only after clicking Weiter on the local Phase 2 instructions.
+        var phase2_ready = {
+            type: jsPsychPairTrial,
+            data: { phase: 'phase2', step: 'instructions_ready' },
+            render: function (el, ctx) {
+                showWaiting(el, 'Warte, bis dein Partner die Anleitung gelesen und auf „Weiter“ geklickt hat …');
+                PairSync.waitForPartner('phase2_instructions_done', function () { ctx.finish(); });
+            },
+        };
 
         function feedbackHTML(feedback, isLast) {
             var ok = feedback === 'richtig';
@@ -802,7 +808,7 @@
                 PairSync.waitForPartner('phase2_end', function () {
                     el.innerHTML = '<div class="instructions">' + (isConf
                         ? '<h2>Danke, du bist mit deinem Teil jetzt fertig.</h2><p>Bitte verlasse jetzt den Raum.</p>'
-                        : '<h2>Der zweite Teil ist abgeschlossen.</h2>' +
+                        : '<h2>Dieser Teil ist abgeschlossen.</h2>' +
                           '<p>Dein Partner verlässt jetzt den Raum. Bitte warte, bis du alleine bist, und klicke anschließend auf „Weiter“.</p>' +
                           '<button class="btn" id="go">Weiter</button>') + '</div>';
                     if (isConf) return ctx.finish();
@@ -812,11 +818,9 @@
         };
 
         var phase3_instructions = instructions(
-            '<h2>Teil 3: Individuelle Begriffsfindung</h2>' +
             '<p>Im letzten Teil siehst du die Bilder aus dem Experiment noch einmal.</p>' +
             '<p>Gib zu jedem Bild den Begriff ein, der deiner Meinung nach am besten dazu passt.</p>' +
-            '<p>Entscheide ganz für dich, wie du das Bild jetzt nennen würdest.</p>' +
-            '<p>Es gibt keine richtigen oder falschen Antworten.</p>',
+            '<p>Entscheide ganz für dich, wie du das Bild jetzt nennen würdest.</p>',
             { step: 'phase3' });
 
         function phase3Naming(c) {
@@ -874,7 +878,7 @@
         var timeline = [].concat(
             [experimenter_screen, connect, preload, enter_fullscreen, general_intro, phase1_instructions],
             phase1_trials,
-            [saveTrial(false), phase2_instructions],
+            [saveTrial(false), phase2_instructions, phase2_ready],
             phase2_trials,
             [saveTrial(false), phase2_end, phase3, saveTrial(true), exit_fullscreen, final]
         );

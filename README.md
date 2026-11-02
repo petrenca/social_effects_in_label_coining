@@ -81,7 +81,7 @@ The launcher also exposes the test condition selector when **Confederate** and *
 ## Implemented task and conditions
 
 1. **Shared label generation and discussion:** both people independently enter a label, see both labels, discuss them, then privately choose their preferred label. Discussion ends automatically at the time limit, or early if both click **Weiter**. Each browser signals completion on its click or timeout; both advance after the signals synchronize. Label-entry timeout only prompts a response and does not submit or cut off entry. Choices are revealed afterward by default.
-2. **Sender–receiver task:** the participant describes a picture. The confederate sees the description and scripted guidance, then supplies **Richtig** or **Falsch** feedback; the current implementation does not present a picture-selection grid to the confederate. Both must acknowledge each feedback screen before the next attempt or concept. There are up to three attempts per concept.
+2. **Sender–receiver task:** both people must click **Weiter** after reading their Phase 2 instructions before either enters the task. The participant describes a picture. The confederate sees the description and scripted guidance, then supplies **Richtig** or **Falsch** feedback; the current implementation does not present a picture-selection grid to the confederate. Both must acknowledge each feedback screen before the next attempt or concept. There are up to three attempts per concept.
 3. **Private naming:** the participant names the pictures again without the confederate. Responses are scored for adoption of the confederate's assigned label.
 
 Pair IDs cycle through the following assignments:
