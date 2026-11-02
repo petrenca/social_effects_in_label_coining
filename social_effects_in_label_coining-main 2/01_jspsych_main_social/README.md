@@ -1,6 +1,6 @@
 # Main experiment: social influence on label adoption
 
-Two participants (a naive participant and a confederate) sit at two computers in the lab and take part in the same session. `main_social_basic.html` implements the three main phases and runs with the included local server. `main_social.html` is the separate scaffold for the full study, including consent, demographics and ID management; its remaining setup is described below.
+Two participants (a naive participant and a confederate) sit at two computers in the lab and take part in the same session. `main_social_basic.html` implements the three main phases and runs with the included local server. `main_social.html` is the separate scaffold for the full study, including consent, demographics and ID management; its remaining setup is described below. See the [repository README](../../README.md) for the fork's file map, quick start and implementation status.
 
 ## Folder structure
 
@@ -14,7 +14,7 @@ Two participants (a naive participant and a confederate) sit at two computers in
 | `stimuli/concepts.csv` | 20 concepts from Exp2: 16 targets with good/bad labels and 4 fillers with middle labels, plus selection measures. Made by `../00_stimuli_selection/select_stimuli_main.py`. Read by the experiment. | done (provisional: Exp2 pilot ratings) |
 | `stimuli/labels_long.csv` | The matching 36 labels: 32 target labels and 4 filler labels, with cosine, rating, z-scores, absolute z difference, ranks, novelty and Exp1 production counts. | done (provisional) |
 | `stimuli/pictures/` | Images referenced by the 20 selected concepts (same resized files as Exp2). Unreferenced files are not used. | done |
-| `jspsych/` | Local jsPsych plugins (same as Exp2). | done |
+| `jspsych/` | Bundled jsPsych 7.3.0 and plugins, used by the basic version. The full-study scaffold loads jsPsych 7.2.3 from a CDN. | done |
 | `data/`, `data_test/`, `sync/state/`, `sync/state_test/` | Runtime output folders created by the local server; create writable folders when deploying with PHP. | created when used |
 | `ID_management/`, `ID_management_test/` | Pair-ID allocation for the full-study scaffold; copy and adapt from Exp2 as described below. | to add for full study |
 
@@ -35,7 +35,7 @@ The Windows launcher probes interpreters by importing the server dependency rath
 
 Each full phase uses **20 concepts: 16 targets + 4 fillers** (`item_type` in `stimuli/concepts.csv`). The selected concepts retain numbers 1–20: the same 16 targets and the first 4 previously selected fillers (concept IDs 89, 29, 24 and 85). `stimuli/labels_long.csv` contains the matching 36 rows.
 
-`../00_stimuli_selection/select_stimuli_main.py` sets `N_TARGETS = 16` and `N_FILLERS = 4`. The selection rules and `FILLER_SEED = 1` are unchanged. A filler's middle label has a mean rating of 45–55, |z(cosine)| ≤ 0.5 and |z(rating) − z(cosine)| ≤ 0.5. Fillers are sampled from eligible non-target concepts with this fixed seed, so every pair uses the same set. The current selection is based on Exp2 pilot ratings and must be regenerated from the main ratings before participant testing.
+`../00_stimuli_selection/select_stimuli_main.py` sets `N_TARGETS = 16` and `N_FILLERS = 4`. The selection rules and `FILLER_SEED = 1` are unchanged. A filler's middle label has a mean rating of 45–55, |z(cosine)| ≤ 0.5 and |z(rating) − z(cosine)| ≤ 0.5. Fillers are sampled from eligible non-target concepts with this fixed seed, so every pair uses the same set. The current selection is based on Exp2 pilot ratings and must be regenerated from the main ratings before participant testing. Regeneration needs pandas and upstream Exp2 ratings and pictures that are absent from this fork; adapt the script's paths and provide those inputs first. The bundled stimulus files are sufficient to run the basic experiment.
 
 Every phase has a reproducible order shared by both computers. The phase seeds are `pairID * 10 + 1`, `pairID * 10 + 2` and `pairID * 10 + 3`; each phase is shuffled independently. The first 3 and last 3 concepts are targets, and all 4 fillers occur in the middle. `CONFIG.filler_free_edge_trials` controls the number of target-only trials at each edge (default `3`).
 
@@ -57,20 +57,22 @@ Data: `data/social_<pair>_<role>_<start time>.csv`, saved after phase 1, phase 2
 
 ## Setting up the infrastructure (copy from Exp2)
 
-Copy the following from the Exp2 pre-study, `02_pre_study_goodness_ratings/01_jspsych_Exp2_goodness_ratings/`, into this folder, then adapt them as described. Read each file while you do it: `main_social.html` expects exactly these paths and names.
+The following notes apply to the unfinished `main_social.html` scaffold. The upstream Exp2 pre-study, `02_pre_study_goodness_ratings/01_jspsych_Exp2_goodness_ratings/`, is not included in this fork. Supply the missing files from that project, then adapt them as described. Read each file while you do it: `main_social.html` expects exactly these paths and names.
 
 | Copy from Exp2 | Put here as | Adapt |
 |---|---|---|
 | `resources/informed-consent.js`, `resources/browserCheck.js` | `resources/` | nothing |
 | `resources/humboldt_logo.png` (missing in Exp2 - take it from Exp1, `01_jspsych_Exp1_labels/resources/`) | `resources/` | nothing |
 | `resources/informedconsent_ratings_de.html` | `resources/informedconsent_social_de.html` | procedure, duration and payment for the lab study; replace the Prolific ID parts in the data-protection section by the pair code; do not reveal the confederate. Keep the radio buttons and the `start` button. |
-| `save_data.php`, `save_data_test.php` | same names | nothing |
+| `save_data.php`, `save_data_test.php` | already included in this fork | retain the existing scripts; integrate with full-study ID cleanup when that infrastructure is added |
 | `ID_management/manageID_ratings.php`, `cleanupID_ratings.php`, `IDs_ratings.txt` | `ID_management/manageID_social.php`, `cleanupID_social.php`, `IDs_social.txt` | file name `IDs_social.txt` inside both scripts; in `cleanupID_social.php` look for `../data/social_<ID>_naive_*.csv` (only the naive participant frees the ID); one line per **pair** in `IDs_social.txt` |
 | `ID_management_test/` | `ID_management_test/` | in `cleanupID_test.php` look for `../data_test/TEST_social_<ID>_naive_*.csv` |
 | `start_local_test.bat` | same name | open `main_social.html?role=naive&test=1` instead of `test.html`; it needs PHP (the Python fallback cannot run the PHP scripts) |
 | `.vscode/settings.json` | same name (optional) | nothing |
 
-`jspsych/` already contains the plugins. Create the required folders when setting up the full study. Add Git ignore rules for participant data, the live ID list, sync state and server passwords before committing runtime output; this folder does not currently include a `.gitignore`.
+`jspsych/` already contains the plugins. Create the required folders when setting up the full study. The repository-root `.gitignore` excludes test data and test sync state, but ordinary `data/` and `sync/state/` output is not ignored and some session files are already tracked.
+
+The scaffold also still calls `PairSync.join(pairID, role)` without its test-mode argument and has no connection-handshake trial. Integrate `PairSync.join(pairID, role, TEST_MODE)` and the fresh-session connection flow when implementing its task timeline. The scaffold instructions below describe the intended setup, not a working full-study entry point.
 
 ## Starting the experiment
 
