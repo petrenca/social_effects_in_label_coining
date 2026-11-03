@@ -498,7 +498,7 @@
                 type: jsPsychPairTrial,
                 data: Object.assign({ phase: 'phase1', step: 'label' }, conceptData(c)),
                 render: function (el, ctx) {
-                    showWaiting(el, 'Warte auf deinen Partner …');
+                    showWaiting(el, 'Warte auf die andere Person …');
                     // both see the same image at the same time
                     PairSync.waitForPartner('phase1_start_c' + c.concept_nr, function () {
                         var t0 = performance.now();
@@ -520,7 +520,7 @@
                         onLabelSubmit(el, function (label) {
                             labelSubmitted = true;
                             var rt = Math.round(performance.now() - t0);
-                            showWaiting(el, 'Warte auf die Eingabe deines Partners …');
+                            showWaiting(el, 'Warte auf die Eingabe der anderen Person …');
                             PairSync.sendValue('phase1_label_c' + c.concept_nr, label);
                             PairSync.getPartnerValue('phase1_label_c' + c.concept_nr, function (partnerLabel) {
                                 var typed = isConf ? label : partnerLabel;
@@ -565,7 +565,7 @@
                         imageHTML(c) +
                         '<div class="labels">' +
                         '<div>Dein Begriff<div class="word">' + caps(own) + '</div></div>' +
-                        '<div>Begriff deines Partners<div class="word">' + caps(partner) + '</div></div>' +
+                        '<div>Begriff der anderen Person<div class="word">' + caps(partner) + '</div></div>' +
                         '</div>' +
                         '<p>Sprecht jetzt miteinander und besprecht, welcher Begriff besser zu dem Bild passt.</p>' +
                         timerHTML() +
@@ -575,7 +575,7 @@
                         if (confirmed) return;
                         confirmed = true;
                         button.disabled = true;
-                        button.textContent = 'Warte auf deinen Partner …';
+                        button.textContent = 'Warte auf die andere Person …';
                         PairSync.waitForPartner(doneKey, function () {
                             ctx.finish({ own_label: own, partner_label: partner, ended_by: reason });
                         });
@@ -604,7 +604,7 @@
                     // position of the two labels on screen is randomised
                     var options = jsPsych.randomization.shuffle([
                         { label: own, source: 'own', caption: 'dein Begriff' },
-                        { label: partner, source: 'partner', caption: 'Begriff deines Partners' },
+                        { label: partner, source: 'partner', caption: 'Begriff der anderen Person' },
                     ]);
                     el.innerHTML = screen(
                         confPanel(confHeader(c) + '<br>Bitte wählen: <b>' + caps(scripted) + '</b> (markiert)') +
@@ -620,7 +620,7 @@
                         btn.addEventListener('click', function () {
                             var o = options[parseInt(btn.dataset.i)];
                             var rt = Math.round(performance.now() - t0);
-                            showWaiting(el, 'Warte auf die Wahl deines Partners …');
+                            showWaiting(el, 'Warte auf die Wahl der anderen Person …');
                             PairSync.sendValue('phase1_choice_c' + c.concept_nr, o.label);
                             PairSync.getPartnerValue('phase1_choice_c' + c.concept_nr, function (partnerChoice) {
                                 p.naive_choice = isConf ? partnerChoice : o.label;
@@ -654,7 +654,7 @@
                     return screen(imageHTML(c) +
                         '<div class="labels">' +
                         '<div>Deine Wahl<div class="word">' + caps(own) + '</div></div>' +
-                        '<div>Wahl deines Partners<div class="word">' + caps(partner) + '</div></div>' +
+                        '<div>Wahl der anderen Person<div class="word">' + caps(partner) + '</div></div>' +
                         '</div>');
                 },
                 choices: ['Weiter'],
@@ -683,9 +683,9 @@
                 'Bei Fillern umgekehrt.</p>', { step: 'phase2' })
             : instructions(
                 '<p>Jetzt geht es darum, Bilder mithilfe von Begriffen richtig zu erkennen.</p>' +
-                '<p>Du siehst jeweils ein Bild auf deinem Bildschirm. Dein Partner sieht mehrere ähnliche Bilder, darunter auch deines.</p>' +
+                '<p>Du siehst jeweils ein Bild auf deinem Bildschirm. Die andere Person sieht mehrere ähnliche Bilder, darunter auch deines.</p>' +
                 '<p>Deine Aufgabe ist es, einen Begriff einzugeben, der dein Bild möglichst gut beschreibt, ' +
-                'damit dein Partner das richtige Bild auswählen kann.</p>' +
+                'damit die andere Person das richtige Bild auswählen kann.</p>' +
                 '<p>Nach jeder Auswahl erfahrt ihr, ob das richtige Bild ausgewählt wurde.</p>' +
                 '<p>Ihr habt maximal ' + CONFIG.phase2_max_attempts + ' Versuche pro Bild.</p>', { step: 'phase2' });
 
@@ -694,7 +694,7 @@
             type: jsPsychPairTrial,
             data: { phase: 'phase2', step: 'instructions_ready' },
             render: function (el, ctx) {
-                showWaiting(el, 'Warte, bis dein Partner die Anleitung gelesen und auf „Weiter“ geklickt hat …');
+                showWaiting(el, 'Warte, bis die andere Person die Anleitung gelesen und auf „Weiter“ geklickt hat …');
                 PairSync.waitForPartner('phase2_instructions_done', function () { ctx.finish(); });
             },
         };
@@ -727,7 +727,7 @@
                             if (confirmed) return;
                             confirmed = true;
                             nextButton.disabled = true;
-                            nextButton.textContent = 'Warte auf deinen Partner …';
+                            nextButton.textContent = 'Warte auf die andere Person …';
                             PairSync.waitForPartner('phase2_feedback_done_' + key, function () {
                                 ctx.finish(Object.assign({
                                     attempt: attempt,
@@ -745,11 +745,11 @@
                         var t0 = performance.now();
                         el.innerHTML = screen(imageHTML(c) +
                             '<p>Versuch ' + attempt + ' von ' + CONFIG.phase2_max_attempts + '</p>' +
-                            '<p>Gib einen Begriff ein, damit dein Partner das richtige Bild auswählen kann.</p>' +
+                            '<p>Gib einen Begriff ein, damit die andere Person das richtige Bild auswählen kann.</p>' +
                             labelInputHTML());
                         onLabelSubmit(el, function (term) {
                             var rt = Math.round(performance.now() - t0);
-                            showWaiting(el, 'Dein Partner wählt ein Bild aus …');
+                            showWaiting(el, 'Die andere Person wählt ein Bild aus …');
                             PairSync.sendValue('phase2_term_' + key, term);
                             PairSync.getPartnerValue('phase2_feedback_' + key, function (feedback) {
                                 done(term, feedback, rt, {});
@@ -809,7 +809,7 @@
                     el.innerHTML = '<div class="instructions">' + (isConf
                         ? '<h2>Danke, du bist mit deinem Teil jetzt fertig.</h2><p>Bitte verlasse jetzt den Raum.</p>'
                         : '<h2>Dieser Teil ist abgeschlossen.</h2>' +
-                          '<p>Dein Partner verlässt jetzt den Raum. Bitte warte, bis du alleine bist, und klicke anschließend auf „Weiter“.</p>' +
+                          '<p>Die andere Person verlässt jetzt den Raum. Bitte warte, bis du alleine bist, und klicke anschließend auf „Weiter“.</p>' +
                           '<button class="btn" id="go">Weiter</button>') + '</div>';
                     if (isConf) return ctx.finish();
                     el.querySelector('#go').addEventListener('click', function () { ctx.finish(); });

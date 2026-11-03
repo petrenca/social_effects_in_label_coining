@@ -264,7 +264,7 @@ function confirmBoth(pair, frames, buttonId, key, firstRole = 'naive') {
     const second = frames[secondRole].el.querySelector(buttonId);
     first.click();
     assert.equal(first.disabled, true);
-    assert.match(first.textContent, /Warte auf deinen Partner/);
+    assert.match(first.textContent, /Warte auf die andere Person/);
     assert.equal(second.disabled, false);
     for (const role of ROLES) assert.equal(frames[role].finished.length, 0, 'one click cannot finish either browser');
     first.click();
