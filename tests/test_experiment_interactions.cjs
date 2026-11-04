@@ -11,6 +11,11 @@ const EXPERIMENT = path.join(__dirname, '..', 'social_effects_in_label_coining-m
 const HTML = fs.readFileSync(path.join(EXPERIMENT, 'main_social_basic.html'), 'utf8');
 const SCRIPT = [...HTML.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map(match => match[1]).join('\n');
 const CONFIG_SCRIPT = fs.readFileSync(path.join(EXPERIMENT, 'resources', 'experiment_config.js'), 'utf8');
+// Follow the page's actual dependency path rather than injecting an undeclared helper.
+const SIMILARITY_PATH = [...HTML.matchAll(/<script\b[^>]*\bsrc="([^"]+)"[^>]*>/g)]
+    .map(match => match[1]).find(src => /(?:^|\/)label_similarity\.js(?:\?|$)/.test(src));
+const SIMILARITY_SCRIPT = SIMILARITY_PATH
+    ? fs.readFileSync(path.join(EXPERIMENT, SIMILARITY_PATH.split('?')[0]), 'utf8') : '';
 const ROLES = ['naive', 'confederate'];
 const ROWS = [
     { concept_nr: '1', concept_id: 'organ', image: '1.jpg', item_type: 'target', good_label: 'Rohrorgel', bad_label: 'Wasserklavier', middle_label: '' },
@@ -105,7 +110,7 @@ function flatten(nodes) {
     return nodes.flatMap(node => node.timeline ? [node, ...flatten(node.timeline)] : [node]);
 }
 
-function createPair({ pairID = 1, limit = 40 } = {}) {
+function createPair({ pairID = 1, limit = 40, rows = ROWS, similarityLimit } = {}) {
     const pair = { bus: new PairBus() };
     for (const role of ROLES) {
         const view = { role, now: 1000, timeline: null };
@@ -130,9 +135,11 @@ function createPair({ pairID = 1, limit = 40 } = {}) {
         };
         view.context = vm.createContext(sandbox);
         vm.runInContext(CONFIG_SCRIPT, view.context, { filename: 'experiment_config.js' });
+        vm.runInContext(SIMILARITY_SCRIPT, view.context, { filename: 'label_similarity.js' });
         view.context.CONFIG.text_input_max_length = limit;
+        if (similarityLimit !== undefined) view.context.CONFIG.phase2_similarity_max_distance = similarityLimit;
         vm.runInContext(SCRIPT, view.context, { filename: 'main_social_basic.html' });
-        view.context.runExperiment(ROWS);
+        view.context.runExperiment(rows);
         view.nodes = flatten(view.timeline);
         view.find = (phase, step, concept = 1) => {
             const node = view.nodes.find(node => node.data?.phase === phase && node.data?.step === step &&
@@ -336,6 +343,9 @@ function checkPhase1(concept, expected, firstRole, pairID = 1) {
     // The typo retained in phase1 diagnostics cannot change phase2's reference or recommendation.
     const feedback = phase2Feedback(pair, concept, 'richtig', 1, firstRole, true);
     assert.equal(feedback.confederate.finished[0].recommended_feedback, 'richtig');
+    assert.equal(feedback.confederate.finished[0].traffic_light, 'green');
+    assert.equal(feedback.confederate.finished[0].label_edit_distance, 0,
+        'traffic light must compare the assigned label, not the mistyped Phase 1 entry');
 }
 
 function phase2Container(view, concept) {
@@ -370,12 +380,67 @@ function phase2Feedback(pair, concept, feedback, attempt, firstRole, useScripted
         if (role === 'confederate') {
             assert.ok(['richtig', 'falsch'].includes(data.recommended_feedback));
             assert.equal(data.followed_script, data.recommended_feedback === feedback);
+            assert.equal(data.label_comparison_error, null);
         } else {
             assert.equal(Object.hasOwn(data, 'recommended_feedback'), false);
             assert.equal(Object.hasOwn(data, 'followed_script'), false);
         }
     }
     return frames;
+}
+
+function phase2Response(pair, term, concept = 1, firstRole = 'confederate') {
+    const secondRole = firstRole === 'naive' ? 'confederate' : 'naive';
+    const frames = {};
+    frames[firstRole] = render(pair[firstRole], pair[firstRole].find('phase2', 'attempt', concept));
+    if (firstRole === 'naive') fill(frames.naive, term);
+    frames[secondRole] = render(pair[secondRole], pair[secondRole].find('phase2', 'attempt', concept));
+    if (firstRole === 'confederate') fill(frames.naive, term);
+    assert.equal(pair.bus.sent.filter(event => event.key.startsWith('phase2_feedback_')).length, 0,
+        'traffic guidance must never send feedback automatically');
+    assert.equal(frames.naive.finished.length, 0);
+    assert.equal(frames.confederate.finished.length, 0);
+    const buttons = frames.confederate.el.querySelectorAll('button[data-fb]');
+    assert.deepEqual(buttons.map(button => button.dataset.fb), ['richtig', 'falsch']);
+    for (const button of buttons) assert.equal(button.disabled, false,
+        'the confederate retains both manual choices for every traffic-light color');
+    assert.equal(frames.naive.el.querySelector('#phase2-traffic-light'), null,
+        'traffic guidance must not be shown on the participant screen');
+    return frames;
+}
+
+function checkTrafficSignal(frames, color, recommended) {
+    const signal = frames.confederate.el.querySelector('#phase2-traffic-light');
+    assert.ok(signal, 'confederate response screen must contain the traffic-light cue');
+    assert.equal(signal.dataset.status, color);
+    assert.ok(signal.attrs.class.split(/\s+/).includes(color));
+    assert.match(frames.confederate.el.innerHTML, new RegExp({ green: 'Grün', yellow: 'Gelb', red: 'Rot' }[color]),
+        'color must also be identified with text');
+    const buttons = frames.confederate.el.querySelectorAll('button[data-fb]');
+    assert.deepEqual(buttons.filter(button => button.attrs.class.split(/\s+/).includes('recommended'))
+        .map(button => button.dataset.fb), recommended === null ? [] : [recommended]);
+}
+
+function finishTrafficResponse(pair, frames, feedback, firstRole = 'naive', concept = 1) {
+    const buttons = frames.confederate.el.querySelectorAll('button[data-fb]');
+    buttons.find(button => button.dataset.fb === feedback).click();
+    // A second click can already be queued when the first response replaces the screen.
+    for (const button of buttons) button.dispatch('click');
+    const sentFeedback = pair.bus.sent.filter(event => event.key === 'phase2_feedback_c' + concept + '_a1');
+    assert.deepEqual(sentFeedback.map(event => event.value), [feedback], 'each attempt sends one manual decision');
+    for (const role of ROLES) {
+        assert.equal(frames[role].finished.length, 0, 'feedback must still wait for both Weiter confirmations');
+        assert.match(frames[role].el.innerHTML, feedback === 'richtig' ? /✔ Richtig/ : /✘ Falsch/);
+        assert.equal(frames[role].el.querySelector('#phase2-traffic-light'), null,
+            'traffic guidance is confined to the confederate decision screen');
+    }
+    confirmBoth(pair, frames, '#feedback-next', 'phase2_feedback_done_c' + concept + '_a1', firstRole);
+    const participant = frames.naive.finished[0];
+    for (const field of ['traffic_light', 'label_match_type', 'label_edit_distance', 'label_parts_swapped',
+        'recommended_feedback', 'followed_script', 'manual_feedback_override', 'label_comparison_error']) {
+        assert.equal(Object.hasOwn(participant, field), false, 'confederate diagnostics must not leak into participant rows');
+    }
+    return frames.confederate.finished[0];
 }
 
 function run() {
@@ -402,6 +467,149 @@ function run() {
         fill(frames.confederate, 'Rohorgel');
         assert.equal(frames.naive.finished[0].time_exceeded, false);
     });
+    check('traffic light respects assertiveness and filler reversal for exact, close and unrelated labels', () => {
+        for (const pairID of [1, 2]) {
+            for (const concept of [1, 17]) {
+                const insists = (pairID === 1) !== (concept === 17);
+                const reference = concept === 1 ? 'ROHRORGEL' : 'MITTELBEGRIFF';
+                for (const [term, matchColor] of [[reference.toLowerCase(), 'green'],
+                    [reference + 'XYZ', 'yellow'], ['ZZZZZZZZZZZZZZZZZZZZ', 'red']]) {
+                    const pair = createPair({ pairID });
+                    const frames = phase2Response(pair, term, concept);
+                    const color = insists ? matchColor : 'green';
+                    const recommended = color === 'yellow' ? null : color === 'green' ? 'richtig' : 'falsch';
+                    checkTrafficSignal(frames, color, recommended);
+                    const data = finishTrafficResponse(pair, frames, recommended || 'richtig', 'naive', concept);
+                    assert.equal(data.traffic_light, color);
+                    assert.equal(data.recommended_feedback, recommended);
+                    if (!insists) assert.equal(data.label_match_type, 'condition_compliant');
+                }
+            }
+        }
+    });
+    check('Unicode-equivalent labels keep green guidance and exact-use data consistent', () => {
+        const rows = ROWS.map(row => row.concept_nr === '1' ? { ...row, good_label: 'Bürste' } : row);
+        const pair = createPair({ rows });
+        const frames = phase2Response(pair, 'BU\u0308RSTE');
+        checkTrafficSignal(frames, 'green', 'richtig');
+        const data = finishTrafficResponse(pair, frames, 'richtig');
+        assert.equal(data.label_match_type, 'exact');
+        assert.equal(data.label_edit_distance, 0);
+        assert.equal(data.uses_confederate_label, true);
+        assert.equal(frames.naive.finished[0].uses_confederate_label, true);
+    });
+    for (const firstRole of ROLES) {
+        for (const failure of ['missing', 'throwing']) {
+            check('received phase2 label remains actionable when comparison is ' + failure + ', first=' + firstRole, () => {
+                const pair = createPair();
+                pair.confederate.context.LabelSimilarity = failure === 'missing' ? undefined : {
+                    compare() { throw new Error('comparison failed during test'); },
+                };
+                const term = 'ROHRORGELXYZ';
+                const frames = phase2Response(pair, term, 1, firstRole);
+                const signal = frames.confederate.el.querySelector('#phase2-traffic-light');
+                assert.equal(signal?.dataset.status, 'unavailable');
+                assert.ok(frames.confederate.el.innerHTML.includes(term),
+                    'the received label must be visible even if optional comparison fails');
+                assert.doesNotMatch(frames.confederate.el.innerHTML, /Warte auf den Begriff der VP/);
+                assert.match(frames.confederate.el.innerHTML, /nicht verfügbar|fehlgeschlagen|manuell/i,
+                    'the confederate must see that comparison is unavailable');
+                assert.equal(frames.confederate.el.querySelectorAll('button[data-fb]')
+                    .filter(button => button.attrs.class.split(/\s+/).includes('recommended')).length, 0);
+                const data = finishTrafficResponse(pair, frames, 'richtig', firstRole);
+                assert.equal(data.traffic_light, 'unavailable');
+                assert.equal(data.label_match_type, 'comparison_unavailable');
+                assert.equal(data.label_edit_distance, null);
+                assert.equal(data.label_parts_swapped, null);
+                assert.equal(data.recommended_feedback, null);
+                assert.equal(data.followed_script, null);
+                assert.equal(data.manual_feedback_override, null);
+                assert.equal(typeof data.label_comparison_error, 'string');
+                assert.ok(data.label_comparison_error.length > 0);
+                for (const role of ROLES) assert.equal(frames[role].finished[0].uses_confederate_label, false);
+            });
+        }
+        check('participant can finish phase2 without the comparison helper, first=' + firstRole, () => {
+            const rows = ROWS.map(row => row.concept_nr === '1' ? { ...row, good_label: 'Bürste' } : row);
+            const pair = createPair({ rows });
+            pair.naive.context.LabelSimilarity = undefined;
+            const frames = phase2Response(pair, 'BU\u0308RSTE', 1, firstRole);
+            checkTrafficSignal(frames, 'green', 'richtig');
+            finishTrafficResponse(pair, frames, 'richtig', firstRole);
+            for (const role of ROLES) {
+                assert.equal(frames[role].finished.length, 1);
+                assert.equal(frames[role].finished[0].uses_confederate_label, true);
+            }
+        });
+        check('yielding traffic rule survives a missing comparison helper, first=' + firstRole, () => {
+            for (const [pairID, concept] of [[2, 1], [1, 17]]) {
+                const pair = createPair({ pairID });
+                pair.confederate.context.LabelSimilarity = undefined;
+                const frames = phase2Response(pair, 'ZZZZZZZZZZZZZZZZZZZZ', concept, firstRole);
+                checkTrafficSignal(frames, 'green', 'richtig');
+                const data = finishTrafficResponse(pair, frames, 'richtig', firstRole, concept);
+                assert.equal(data.label_match_type, 'condition_compliant');
+                assert.equal(data.label_edit_distance, null);
+                assert.equal(data.label_parts_swapped, null);
+                assert.equal(data.recommended_feedback, 'richtig');
+                assert.equal(data.followed_script, true);
+                assert.equal(data.manual_feedback_override, false);
+                assert.equal(typeof data.label_comparison_error, 'string');
+                assert.ok(data.label_comparison_error.length > 0);
+            }
+        });
+    }
+    check('traffic yellow edit threshold includes three changes and excludes four', () => {
+        for (const [suffix, color, distance] of [['XYZ', 'yellow', 3], ['WXYZ', 'red', 4]]) {
+            const pair = createPair();
+            assert.equal(pair.naive.context.CONFIG.phase2_similarity_max_distance, 3);
+            const frames = phase2Response(pair, 'ROHRORGEL' + suffix);
+            checkTrafficSignal(frames, color, color === 'yellow' ? null : 'falsch');
+            const data = finishTrafficResponse(pair, frames, 'falsch');
+            assert.equal(data.label_edit_distance, distance);
+            assert.equal(data.label_match_type, color === 'yellow' ? 'edit_distance' : 'different');
+        }
+        const strictPair = createPair({ similarityLimit: 1 });
+        checkTrafficSignal(phase2Response(strictPair, 'ROHRORGELXY'), 'red', 'falsch');
+    });
+    check('reversed compound parts including linking n produce yellow guidance', () => {
+        const rows = ROWS.map(row => row.concept_nr === '1' ? { ...row, good_label: 'CDpfanne' } : row);
+        for (const term of ['PFANNECD', 'PFANNENCD']) {
+            const pair = createPair({ rows });
+            const frames = phase2Response(pair, term);
+            checkTrafficSignal(frames, 'yellow', null);
+            const data = finishTrafficResponse(pair, frames, 'richtig');
+            assert.equal(data.label_match_type, 'swapped_parts');
+            assert.equal(data.label_parts_swapped, true);
+            assert.equal(data.uses_confederate_label, false, 'a possible compound swap remains a nonexact match');
+        }
+    });
+    for (const firstRole of ROLES) {
+        for (const feedback of ['richtig', 'falsch']) {
+            check('yellow remains a manual choice with both confirmations, first=' + firstRole + ', feedback=' + feedback, () => {
+                const pair = createPair();
+                const frames = phase2Response(pair, 'ROHRORGELXYZ', 1, firstRole);
+                checkTrafficSignal(frames, 'yellow', null);
+                const data = finishTrafficResponse(pair, frames, feedback, firstRole);
+                assert.equal(data.traffic_light, 'yellow');
+                assert.equal(data.recommended_feedback, null);
+                assert.equal(data.followed_script, null);
+                assert.equal(data.manual_feedback_override, null);
+                assert.equal(phase2Container(pair.naive, 1).loop_function(), feedback === 'falsch');
+            });
+        }
+        check('red can be manually approved and records the override, first=' + firstRole, () => {
+            const pair = createPair();
+            const frames = phase2Response(pair, 'ZZZZZZZZZZZZZZZZZZZZ', 1, firstRole);
+            checkTrafficSignal(frames, 'red', 'falsch');
+            const data = finishTrafficResponse(pair, frames, 'richtig', firstRole);
+            assert.equal(data.traffic_light, 'red');
+            assert.equal(data.followed_script, false);
+            assert.equal(data.manual_feedback_override, true);
+            assert.equal(data.feedback, 'richtig');
+            assert.equal(phase2Container(pair.naive, 1).loop_function(), false);
+        });
+    }
     check('phase1 confirmations are fresh for each concept', () => {
         const pair = createPair();
         for (const concept of [1, 2]) {

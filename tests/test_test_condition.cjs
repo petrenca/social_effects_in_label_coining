@@ -10,6 +10,7 @@ var conditionExperimentDir = typeof require === 'function'
     : arguments[0];
 var conditionPage = conditionReadText(conditionExperimentDir + '/main_social_basic.html', 'utf8');
 var conditionConfig = conditionReadText(conditionExperimentDir + '/resources/experiment_config.js', 'utf8');
+var conditionSimilarity = conditionReadText(conditionExperimentDir + '/resources/label_similarity.js', 'utf8');
 var conditionInline = Array.from(conditionPage.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g), m => m[1]).join('\n');
 
 function conditionAssert(value, message) {
@@ -111,7 +112,7 @@ function conditionHarness(search, bus) {
     view.window = { location: { search: search } };
     var factory = new Function('window', 'document', 'fetch', 'URLSearchParams', 'initJsPsych', 'PairSync',
         'jsPsychHtmlButtonResponse', 'jsPsychPairTrial', 'jsPsychPreload', 'jsPsychFullscreen',
-        conditionConfig + '\n' + conditionInline + '\nreturn { runExperiment: runExperiment, override: TEST_ASSERTIVENESS };');
+        conditionConfig + '\n' + conditionSimilarity + '\n' + conditionInline + '\nreturn { runExperiment: runExperiment, override: TEST_ASSERTIVENESS };');
     view.page = factory(view.window, document, function () {
         view.fetches++;
         return { then() { return this; }, catch() { return this; } };
@@ -205,6 +206,8 @@ function conditionRun() {
                     views.naive.sync.sendValue('phase2_term_c' + concept + '_a1', 'UNRELATED LABEL');
                     var insists = (expected === 'assertive') !== isFiller;
                     conditionAssert(el.innerHTML.includes('Empfohlen: <b>' + (insists ? 'falsch' : 'richtig') + '</b>'), 'strategy must use shared condition and filler reversal');
+                    conditionAssert(el.innerHTML.includes('data-status="' + (insists ? 'red' : 'green') + '"'),
+                        'traffic light must follow the synchronized test condition and filler reversal');
                 }
             });
         }

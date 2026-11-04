@@ -45,6 +45,8 @@ function createHarness(role, configSource, pageSource, csvSource) {
         }),
     });
     vm.runInContext(configSource, context, { filename: 'experiment_config.js' });
+    vm.runInContext(fs.readFileSync(path.join(experimentDir, 'resources/label_similarity.js'), 'utf8'), context,
+        { filename: 'label_similarity.js' });
     vm.runInContext(pageSource, context, { filename: 'main_social_basic.inline.js' });
     const rows = context.parseCSV(csvSource);
     const inputBefore = JSON.stringify(rows);

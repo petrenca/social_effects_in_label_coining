@@ -8,8 +8,8 @@
 var CONFIG = {
 
     // 1. Assertiveness (confederate behaviour), between pairs - assigned by pair ID in getCondition():
-    //   'assertive' - the confederate sticks to their own label (phase 1) and accepts the naive
-    //                 participant's description only once it uses the confederate's label (phase 2)
+    //   'assertive' - the confederate sticks to their own label (phase 1); phase 2 traffic lights
+    //                 compare against that label, with manual review/override available
     //   'compliant' - the confederate adopts the naive participant's label (phase 1) and accepts
     //                 any description at once (phase 2)
     //   In filler concepts the confederate does the opposite of the condition.
@@ -27,6 +27,10 @@ var CONFIG = {
 
     // phase 2: maximum number of attempts per picture
     phase2_max_attempts: 3,
+
+    // Phase 2: non-identical labels within this Levenshtein distance get yellow review guidance.
+    // Reversed compound parts also get yellow. Neither rule automatically accepts a response.
+    phase2_similarity_max_distance: 3,
 
     // All participant label/description fields; also checked after trimming and uppercasing.
     text_input_max_length: 40,

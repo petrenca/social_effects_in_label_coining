@@ -23,6 +23,7 @@ The experiment retains its existing folder name, including the space and trailin
 │       ├── start_local.bat             # Windows launcher for the Python server
 │       ├── resources/
 │       │   ├── experiment_config.js    # Conditions, timing, ordering and confederate script
+│       │   ├── label_similarity.js      # Spelling distance and compound-part reversal hints
 │       │   ├── pair_sync.js            # Handshake, polling, retries and shared-step barriers
 │       │   └── plugin-pair-trial.js     # Custom jsPsych screens and timer cleanup
 │       ├── jspsych/                    # Bundled jsPsych 7.3.0 and plugins
@@ -81,7 +82,7 @@ The launcher also exposes the test condition selector when **Confederate** and *
 ## Implemented task and conditions
 
 1. **Shared label generation and discussion:** both people independently enter a label, see both labels, discuss them, then privately choose their preferred label. Discussion ends automatically at the time limit, or early if both click **Weiter**. Each browser signals completion on its click or timeout; both advance after the signals synchronize. Label-entry timeout only prompts a response and does not submit or cut off entry. Choices are revealed afterward by default.
-2. **Sender–receiver task:** both people must click **Weiter** after reading their Phase 2 instructions before either enters the task. The participant describes a picture. The confederate sees the description and scripted guidance, then supplies **Richtig** or **Falsch** feedback; the current implementation does not present a picture-selection grid to the confederate. Both must acknowledge each feedback screen before the next attempt or concept. There are up to three attempts per concept.
+2. **Sender–receiver task:** both people must click **Weiter** after reading their Phase 2 instructions before either enters the task. The participant describes a picture. The confederate sees the description and a traffic light, then supplies **Richtig** or **Falsch** feedback; the current implementation does not present a picture-selection grid to the confederate. Both must acknowledge each feedback screen before the next attempt or concept. There are up to three attempts per concept.
 3. **Private naming:** the participant names the pictures again without the confederate. Responses are scored for adoption of the confederate's assigned label.
 
 Pair IDs cycle through the following assignments:
@@ -96,6 +97,12 @@ Pair IDs cycle through the following assignments:
 List A assigns good labels to odd-numbered targets and bad labels to even-numbered targets; list B reverses this. Each full run has 8 good and 8 bad target labels. Fillers use middle labels and the opposite assertiveness strategy. Confederates receive highlighted labels, strategies and response recommendations. Their assigned stimulus label remains authoritative even if their typed entry differs; typed entries and mismatch diagnostics are retained in the data.
 
 Change parameters in [`resources/experiment_config.js`](<social_effects_in_label_coining-main 2/01_jspsych_main_social/resources/experiment_config.js>). Defaults include 60 seconds for label entry, 60 seconds for discussion, a 40-character input limit and a 500 ms synchronization polling interval. Each phase has a reproducible order based on pair ID, with the first and last three concepts restricted to targets. Short subsets with fewer than six targets use an unrestricted seeded shuffle.
+
+The Phase 2 traffic light appears only on the confederate's response screen. For assertive targets and compliant fillers, an exact match to the assigned Phase 1 label is green and recommends **Richtig**. A non-identical label within Levenshtein distance 3 (configurable), or a possible reversal of two compound parts such as `CDPFANNE → PFANNENCD`, is yellow and asks for manual review without recommending an answer. Other labels are red and recommend **Falsch**, but the confederate can still approve them with **Richtig**. Compliant targets and assertive fillers always show green and recommend **Richtig**, regardless of the label. Nothing is submitted automatically.
+
+Similarity checks ignore case and surrounding whitespace and normalize equivalent Unicode representations. Compound reversal is a spelling heuristic with optional German linking elements, not a semantic judgement; both parts must otherwise match. Synonyms and other plausible descriptions can still be approved manually. The [experiment guide](<social_effects_in_label_coining-main 2/01_jspsych_main_social/README.md>) documents the exact rules and saved diagnostics.
+
+If the similarity script is missing or its comparison fails, the confederate still receives the word and can give feedback. The screen explicitly shows **Ampel nicht verfügbar** for comparisons requiring review, rather than staying on the waiting message. Ensure `resources/label_similarity.js` is copied along with the HTML when moving the experiment to another computer; a missing helper also produces a warning on the confederate's setup screen.
 
 ## Communication and saved data
 
@@ -135,6 +142,7 @@ Run from the repository root with Node.js and Python 3. The tests use standard l
 ```sh
 node tests/test_trial_order.cjs
 node tests/test_experiment_interactions.cjs
+node tests/test_label_similarity.cjs
 node tests/test_pair_sync.cjs
 node tests/test_test_condition.cjs
 python3 -B -m unittest discover -s tests -p 'test_*.py' -v

@@ -34,6 +34,7 @@
 
     <!-- all changeable parameters (conditions, timing, trial numbers, confederate behaviour) -->
     <script src="resources/experiment_config.js"></script>
+    <script src="resources/label_similarity.js"></script>
     <!-- communication with the partner's browser - the ONLY place that talks to sync/sync.php -->
     <script src="resources/pair_sync.js"></script>
 
@@ -61,6 +62,18 @@
                 margin: 12px auto; max-width: 760px; text-align: left; font-size: 16px; }
         .conf ul { margin: 4px 0; }
         .btn.recommended { outline: 4px solid #f9a825; }
+        .traffic-light { display: flex; align-items: center; gap: 16px; text-align: left; padding: 12px 16px;
+                         margin: 16px auto; max-width: 620px; border: 2px solid currentColor; border-radius: 8px; }
+        .traffic-light.green { color: #1b5e20; background: #edf7ed; }
+        .traffic-light.yellow { color: #6d4c00; background: #fff8e1; }
+        .traffic-light.red { color: #b71c1c; background: #ffebee; }
+        .traffic-light.unavailable { color: #424242; background: #f5f5f5; }
+        .traffic-lamps { display: flex; flex-direction: column; gap: 5px; padding: 8px; border-radius: 8px;
+                         background: #333; flex-shrink: 0; }
+        .traffic-lamp { width: 16px; height: 16px; border-radius: 50%; background: #666; border: 1px solid #999; }
+        .traffic-light.red .lamp-red { background: #ef5350; border-color: #ef5350; }
+        .traffic-light.yellow .lamp-yellow { background: #ffca28; border-color: #ffca28; }
+        .traffic-light.green .lamp-green { background: #66bb6a; border-color: #66bb6a; }
         #launcher { max-width: 420px; margin: 60px auto; font-family: sans-serif; line-height: 2; }
         #launcher input, #launcher select { font-size: 16px; }
     </style>
@@ -177,6 +190,18 @@
         return String(s || '').trim().toUpperCase();
     }
 
+    function labelSimilarityReady() {
+        return typeof LabelSimilarity !== 'undefined' && LabelSimilarity !== null &&
+            typeof LabelSimilarity.compare === 'function';
+    }
+
+    // Exact-use data must remain available even if the optional similarity script fails to load.
+    function phase2LabelsEqual(term, reference) {
+        var candidate = submittedLabel(term).normalize('NFC');
+        var assigned = submittedLabel(reference).normalize('NFC');
+        return candidate.length > 0 && candidate === assigned;
+    }
+
     function textInputMaxLength() {
         var limit = CONFIG.text_input_max_length;
         return Number.isInteger(limit) && limit > 0 ? limit : 40;
@@ -288,10 +313,45 @@
             return confederateInsists(c) ? ownLabel : partnerLabel;
         }
 
-        // phase 2: 'richtig' or 'falsch' for the naive participant's description
-        function phase2ConfederateFeedback(c, term) {
-            if (!confederateInsists(c)) return 'richtig';
-            return normalize(term) === normalize(confederateLabel(c)) ? 'richtig' : 'falsch';
+        // Phase 2 guidance only: the confederate always makes the final feedback choice.
+        function phase2ConfederateAssessment(c, term) {
+            var match = { distance: null, swapped_parts: null };
+            var comparisonError = null;
+            try {
+                if (!labelSimilarityReady()) throw new Error('resources/label_similarity.js is not available');
+                var result = LabelSimilarity.compare(term, confederateLabel(c));
+                if (!result || !Number.isInteger(result.distance) || result.distance < 0 ||
+                        typeof result.swapped_parts !== 'boolean') {
+                    throw new Error('Label comparison returned an invalid result');
+                }
+                match = result;
+            } catch (err) {
+                comparisonError = String(err && err.message || err);
+                console.error('Phase 2 similarity check failed; manual feedback remains available:', err);
+            }
+            var limit = CONFIG.phase2_similarity_max_distance;
+            if (!Number.isInteger(limit) || limit < 0) limit = 3;
+            var status, matchType, recommended;
+            if (!confederateInsists(c)) {
+                status = 'green'; matchType = 'condition_compliant'; recommended = 'richtig';
+            } else if (comparisonError !== null) {
+                status = 'unavailable'; matchType = 'comparison_unavailable'; recommended = null;
+            } else if (phase2LabelsEqual(term, confederateLabel(c))) {
+                status = 'green'; matchType = 'exact'; recommended = 'richtig';
+            } else if (normalize(term) && normalize(confederateLabel(c)) &&
+                    (match.swapped_parts || match.distance <= limit)) {
+                status = 'yellow'; matchType = match.swapped_parts ? 'swapped_parts' : 'edit_distance'; recommended = null;
+            } else {
+                status = 'red'; matchType = 'different'; recommended = 'falsch';
+            }
+            return {
+                traffic_light: status,
+                label_match_type: matchType,
+                label_edit_distance: match.distance,
+                label_parts_swapped: match.swapped_parts,
+                label_comparison_error: comparisonError,
+                recommended_feedback: recommended,
+            };
         }
 
         function strategyText(c) {
@@ -310,6 +370,23 @@
             return 'Bedingung: <b>' + condition.assertiveness + '</b> · Bild ' + c.concept_nr + (c.is_filler ? ' · <b>FILLER</b>' : '') +
                 ' · Label: <b>' + c.label_goodness + '</b>' +
                 ' · Strategie: ' + strategyText(c);
+        }
+
+        function phase2TrafficHTML(assessment) {
+            var status = assessment.traffic_light;
+            var title = { green: 'Grün', yellow: 'Gelb', red: 'Rot', unavailable: 'Ampel nicht verfügbar' }[status];
+            var message = status === 'unavailable' ? 'Bitte manuell prüfen und selbst entscheiden.'
+                : assessment.label_match_type === 'condition_compliant'
+                ? 'In dieser Strategie immer „Richtig“ wählen.'
+                : status === 'green' ? 'Der Begriff stimmt mit deinem Begriff aus Teil 1 überein.'
+                : status === 'yellow' ? (assessment.label_parts_swapped
+                    ? 'Möglicherweise vertauschte Wortteile. Bitte prüfen und selbst entscheiden.'
+                    : 'Ähnliche Schreibweise. Bitte prüfen und selbst entscheiden.')
+                : 'Abweichender Begriff. Falls er dennoch nah genug ist, kannst du „Richtig“ wählen.';
+            return '<div class="traffic-light ' + status + '" id="phase2-traffic-light" data-status="' + status + '" role="status">' +
+                '<span class="traffic-lamps" aria-hidden="true"><span class="traffic-lamp lamp-red"></span>' +
+                '<span class="traffic-lamp lamp-yellow"></span><span class="traffic-lamp lamp-green"></span></span>' +
+                '<div><b>' + title + '</b><br>' + message + '</div></div>';
         }
 
         function showWaiting(el, text) {
@@ -422,7 +499,10 @@
             stimulus: '<p>Paar-ID: <b>' + pairID + '</b> &nbsp;|&nbsp; Rolle: <b>' + role + '</b>' +
                 (isConf ? ' &nbsp;|&nbsp; Bedingung: <b>' + condition.assertiveness + ' / Liste ' + condition.label_list + '</b>' : '') +
                 ' &nbsp;|&nbsp; Konzepte: <b>' + concepts.length + '</b>' +
-                (TEST_MODE ? ' &nbsp;|&nbsp; <b style="color:red;">TESTMODUS</b>' : '') + '</p>',
+                (TEST_MODE ? ' &nbsp;|&nbsp; <b style="color:red;">TESTMODUS</b>' : '') + '</p>' +
+                (isConf && !labelSimilarityReady() ? '<p style="color:#c62828">Die Ampel-Prüfung wurde nicht geladen. ' +
+                    'Bitte prüfe, ob resources/label_similarity.js auf dem Server vorhanden ist, und lade die Seite neu. ' +
+                    'Ohne diese Datei ist nur manuelles Feedback möglich.</p>' : ''),
             choices: ['Start'],
             data: { phase: 'setup' },
         };
@@ -677,10 +757,12 @@
             ? instructions(
                 '<h2>Teil 2 (Confederate-Ansicht)</h2>' +
                 '<p>Die VP gibt für jedes Bild einen Begriff ein. Du siehst den Begriff, deinen Begriff aus Teil 1 ' +
-                'und die aktuelle Strategie, und klickst <b>Richtig</b> oder <b>Falsch</b> (die empfohlene Antwort ist markiert). ' +
+                'und die aktuelle Strategie, und klickst <b>Richtig</b> oder <b>Falsch</b>. ' +
                 'Maximal ' + CONFIG.phase2_max_attempts + ' Versuche pro Bild.</p>' +
-                '<p>Assertive: „Falsch“, bis die VP deinen Begriff aus Teil 1 verwendet. Compliant: sofort „Richtig“. ' +
-                'Bei Fillern umgekehrt.</p>', { step: 'phase2' })
+                '<p>Assertive: Grün bei deinem Begriff, Gelb bei ähnlicher Schreibweise oder möglicherweise vertauschten Wortteilen, ' +
+                'sonst Rot. Compliant: immer Grün und „Richtig“. Bei Fillern umgekehrt.</p>' +
+                '<p>Grün empfiehlt „Richtig“, Rot empfiehlt „Falsch“ (markiert). Bei Gelb prüfst du selbst. ' +
+                'Du entscheidest immer per Klick und kannst auch bei Rot „Richtig“ wählen, wenn der Begriff nah genug ist.</p>', { step: 'phase2' })
             : instructions(
                 '<p>Jetzt geht es darum, Bilder mithilfe von Begriffen richtig zu erkennen.</p>' +
                 '<p>Du siehst jeweils ein Bild auf deinem Bildschirm. Die andere Person sieht mehrere ähnliche Bilder, darunter auch deines.</p>' +
@@ -734,7 +816,7 @@
                                     description: term,
                                     feedback: feedback,
                                     confederate_label: confederateLabel(c),
-                                    uses_confederate_label: normalize(term) === normalize(confederateLabel(c)),
+                                    uses_confederate_label: phase2LabelsEqual(term, confederateLabel(c)),
                                     rt: rt,
                                 }, extra));
                             });
@@ -762,22 +844,29 @@
                             '<p class="waiting">Warte auf den Begriff der VP …</p>');
                         PairSync.getPartnerValue('phase2_term_' + key, function (term) {
                             var t0 = performance.now();
-                            var recommended = phase2ConfederateFeedback(c, term);
+                            var assessment = phase2ConfederateAssessment(c, term);
+                            var recommended = assessment.recommended_feedback;
+                            var feedbackSubmitted = false;
                             el.innerHTML = screen(
                                 confPanel(confHeader(c) + '<br>Versuch ' + attempt + ' von ' + CONFIG.phase2_max_attempts +
                                     ' · Dein Begriff aus Teil 1: <b>' + caps(confederateLabel(c)) + '</b>' +
-                                    '<br>Empfohlen: <b>' + recommended + '</b> (markiert)') +
+                                    (recommended === null ? '<br><b>Bitte prüfen und selbst entscheiden.</b>' :
+                                        '<br>Empfohlen: <b>' + recommended + '</b> (markiert)')) +
                                 '<p>Begriff der VP:</p><div class="labels"><div class="word">' + caps(term) + '</div></div>' +
+                                phase2TrafficHTML(assessment) +
                                 '<button class="btn' + (recommended === 'richtig' ? ' recommended' : '') + '" data-fb="richtig">Richtig</button>' +
                                 '<button class="btn' + (recommended === 'falsch' ? ' recommended' : '') + '" data-fb="falsch">Falsch</button>');
                             el.querySelectorAll('button[data-fb]').forEach(function (btn) {
                                 btn.addEventListener('click', function () {
+                                    if (feedbackSubmitted) return;
+                                    feedbackSubmitted = true;
+                                    el.querySelectorAll('button[data-fb]').forEach(function (button) { button.disabled = true; });
                                     var feedback = btn.dataset.fb;
                                     PairSync.sendValue('phase2_feedback_' + key, feedback);
-                                    done(term, feedback, Math.round(performance.now() - t0), {
-                                        recommended_feedback: recommended,
-                                        followed_script: feedback === recommended,
-                                    });
+                                    done(term, feedback, Math.round(performance.now() - t0), Object.assign({}, assessment, {
+                                        followed_script: recommended === null ? null : feedback === recommended,
+                                        manual_feedback_override: recommended === null ? null : feedback !== recommended,
+                                    }));
                                 });
                             });
                         });
