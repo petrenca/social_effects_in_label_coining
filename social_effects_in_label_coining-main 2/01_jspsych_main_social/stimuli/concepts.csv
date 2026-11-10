@@ -19,7 +19,3 @@ concept_nr,concept_id,image,item_type,difficulty_mean,good_label,bad_label,middl
 18,29,29.jpg,filler,34.666666666666664,,,Abstraktionsring,,,0.081657625734806,,,45.5
 19,24,24.jpg,filler,47.66666666666666,,,Karabinerhaken,,,0.103308618068695,,,48.66666666666666
 20,85,85.jpg,filler,36.0,,,Objektiv,,,0.0770479515194892,,,51.5
-21,3,3.jpg,filler,42.0,,,Zukunft,,,0.0855296999216079,,,54.0
-22,40,40.jpg,filler,44.333333333333336,,,Turbinenblume,,,0.1001364588737487,,,46.5
-23,30,30.jpg,filler,40.0,,,Klammer,,,0.102923147380352,,,48.333333333333336
-24,77,77.jpg,filler,46.0,,,Wintersport,,,0.0784519389271736,,,51.5

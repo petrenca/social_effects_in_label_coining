@@ -8,8 +8,8 @@
 var CONFIG = {
 
     // 1. Assertiveness (confederate behaviour), between pairs - assigned by pair ID in getCondition():
-    //   'assertive' - the confederate sticks to their own label (phase 1) and accepts the naive
-    //                 participant's description only once it uses the confederate's label (phase 2)
+    //   'assertive' - the confederate sticks to their own label (phase 1); phase 2 traffic lights
+    //                 compare against that label, with manual review/override available
     //   'compliant' - the confederate adopts the naive participant's label (phase 1) and accepts
     //                 any description at once (phase 2)
     //   In filler concepts the confederate does the opposite of the condition.
@@ -21,12 +21,23 @@ var CONFIG = {
     // timing in milliseconds (values from the study description)
     timing: {
         phase1_label_entry_ms: 60000,   // time to think of and enter a label (a countdown; entry is not cut off)
-        phase1_discussion_ms: 60000,    // discussion of the two labels, then the choice screen appears automatically
+        phase1_discussion_ms: 60000,    // discussion time limit; automatically completes through the pair barrier
         sync_poll_interval_ms: 500,     // how often the browser asks the server for news
     },
 
     // phase 2: maximum number of attempts per picture
     phase2_max_attempts: 3,
+
+    // Phase 2: non-identical labels within this Levenshtein distance get yellow review guidance.
+    // Reversed compound parts also get yellow. Neither rule automatically accepts a response.
+    phase2_similarity_max_distance: 3,
+
+    // All participant label/description fields; also checked after trimming and uppercasing.
+    text_input_max_length: 40,
+
+    // Reserve this many targets at each end of every phase. Short test subsets with fewer
+    // than twice this many targets are shuffled without the edge restriction.
+    filler_free_edge_trials: 3,
 
     // phase 1: show both participants' choices after the private choice? The study description
     // asks whether revealing the "private" choice makes participants adapt it - set to false to hide it.
@@ -34,7 +45,7 @@ var CONFIG = {
 
     // Stimuli: one row per concept (concept_nr, concept_id, image, item_type target/filler,
     // good_label, bad_label, middle_label, ...), made by ../00_stimuli_selection/select_stimuli_main.py
-    // (16 targets, 8 fillers). All rows are used; for quick test runs add &n=1 to the URL.
+    // (16 targets, 4 fillers = 20 concepts per phase). For quick tests add &n=1 to the URL.
     // Images are in stimuli/pictures/.
     stimuli_file: 'stimuli/concepts.csv',
     image_folder: 'stimuli/pictures/',

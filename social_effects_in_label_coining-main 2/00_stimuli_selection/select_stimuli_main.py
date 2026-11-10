@@ -1,7 +1,7 @@
 """
 Selects the main-experiment stimuli from the Experiment 2 goodness ratings and copies the
 images into the jsPsych folder: 16 target concepts (1 good + 1 bad label each; the label
-goodness condition decides which one the confederate uses) and 8 filler concepts (1 middle
+goodness condition decides which one the confederate uses) and 4 filler concepts (1 middle
 label each, used by the confederate in every condition).
 
 Input: pair_summary.csv from 03_human_model_convergence.R (one row per Exp2 concept-label
@@ -28,7 +28,7 @@ are listed in 05_select_main_stimuli.R.
 Outputs (in ../01_jspsych_main_social/stimuli/):
   concepts.csv     one row per concept (item_type: target / filler) - read by the experiment
   labels_long.csv  one row per concept x label with all selection measures
-  pictures/        the 24 images (other images are removed)
+  pictures/        the 20 images (other images are removed)
 
 Run with the pilot analysis venv's python:
   ..\\..\\01_pre_study_labels\\02_analysis_Exp1_labels\\01_pilot\\.venv\\Scripts\\python select_stimuli_main.py
@@ -40,7 +40,7 @@ from pathlib import Path
 import pandas as pd
 
 N_TARGETS = 16
-N_FILLERS = 8
+N_FILLERS = 4
 MAX_ABS_DIFF_Z = 0.5
 FILLER_RATING_RANGE = (45, 55)
 FILLER_MAX_ABS_Z_COSINE = 0.5
