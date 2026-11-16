@@ -35,8 +35,8 @@ var CONFIG = {
     // All participant label/description fields; also checked after trimming and uppercasing.
     text_input_max_length: 40,
 
-    // Reserve this many targets at each end of every phase. Short test subsets with fewer
-    // than twice this many targets are shuffled without the edge restriction.
+    // Reserve this many targets at each end of every phase. Short test subsets relax
+    // this restriction if there are too few targets to keep both edges and separate fillers.
     filler_free_edge_trials: 3,
 
     // phase 1: show both participants' choices after the private choice? The study description

@@ -225,18 +225,29 @@
         return a;
     }
 
-    // 20 concepts in a full phase: 16 targets and 4 fillers, with target-only edges.
-    // A small &n= test subset may lack enough targets to reserve both edges.
+    // 20 concepts in a full phase: 16 targets and 4 fillers, with target-only edges
+    // and at least one target between fillers. Short &n= subsets may need relaxed edges.
     function orderConcepts(concepts, seed) {
         var edge = CONFIG.filler_free_edge_trials;
         if (!Number.isInteger(edge) || edge < 0) edge = 3;
         var targets = seededShuffle(concepts.filter(function (c) { return !c.is_filler; }), seed);
-        if (targets.length < 2 * edge) return seededShuffle(concepts, seed);
         var fillers = concepts.filter(function (c) { return c.is_filler; });
-        var start = targets.slice(0, edge);
-        var end = targets.slice(targets.length - edge);
-        var middle = targets.slice(edge, targets.length - edge).concat(fillers);
-        return start.concat(seededShuffle(middle, seed ^ 0x9E3779B9), end);
+        // Separation is impossible in some tiny test subsets; keep every selected concept.
+        if (fillers.length > targets.length + 1) return seededShuffle(concepts, seed);
+        if (targets.length < 2 * edge || fillers.length > targets.length - 2 * edge + 1) edge = 0;
+
+        // Gap i is before target i (gap targets.length is after the last target).
+        // Use distinct gaps so that two fillers can never be adjacent.
+        var gaps = [];
+        for (var i = edge; i <= targets.length - edge; i++) gaps.push(i);
+        var fillerGaps = seededShuffle(gaps, seed ^ 0x9E3779B9).slice(0, fillers.length);
+        fillers = seededShuffle(fillers, seed ^ 0x85EBCA6B);
+        var ordered = [];
+        for (var j = 0; j <= targets.length; j++) {
+            if (fillerGaps.indexOf(j) !== -1) ordered.push(fillers.shift());
+            if (j < targets.length) ordered.push(targets[j]);
+        }
+        return ordered;
     }
 
     function minutesText(ms) {
