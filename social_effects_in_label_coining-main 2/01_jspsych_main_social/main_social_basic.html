@@ -48,6 +48,8 @@
         .btn { font-size: 18px; padding: 8px 20px; margin: 8px; cursor: pointer; }
         .labels { display: flex; flex-wrap: wrap; justify-content: center; gap: 24px; margin: 16px 0; }
         .labels > div { flex: 1 1 220px; min-width: 0; max-width: 100%; }
+        .labels.labels-stacked { flex-direction: column; }
+        .labels.labels-stacked > div { flex: 0 1 auto; }
         .labels .word { font-size: 28px; font-weight: bold; overflow-wrap: anywhere; }
         .label-choice { max-width: 100%; box-sizing: border-box; white-space: normal; overflow-wrap: anywhere; }
         @media (max-width: 560px) { .labels > div { flex-basis: 100%; } }
@@ -732,7 +734,7 @@
                     var own = isConf ? p.confederate_choice : p.naive_choice;
                     var partner = isConf ? p.naive_choice : p.confederate_choice;
                     return screen(imageHTML(c) +
-                        '<div class="labels">' +
+                        '<div class="labels labels-stacked">' +
                         '<div>Deine Wahl<div class="word">' + caps(own) + '</div></div>' +
                         '<div>Wahl der anderen Person<div class="word">' + caps(partner) + '</div></div>' +
                         '</div>');
