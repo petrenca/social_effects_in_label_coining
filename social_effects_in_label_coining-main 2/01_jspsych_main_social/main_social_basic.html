@@ -851,9 +851,12 @@
                             });
                         });
                     } else {
+                        var originalLabel = (phase1[c.concept_nr] || {}).naive_label;
+                        var originalLabelHTML = '<p>Participant&#39;s original label from phase 1:<br><b>' +
+                            caps(originalLabel || '—') + '</b></p>';
                         el.innerHTML = screen(
                             confPanel(confHeader(c) + '<br>Versuch ' + attempt + ' von ' + CONFIG.phase2_max_attempts +
-                                ' · Dein Begriff aus Teil 1: <b>' + caps(confederateLabel(c)) + '</b>') +
+                                ' · Dein Begriff aus Teil 1: <b>' + caps(confederateLabel(c)) + '</b>' + originalLabelHTML) +
                             '<p class="waiting">Warte auf den Begriff der VP …</p>');
                         PairSync.getPartnerValue('phase2_term_' + key, function (term) {
                             var t0 = performance.now();
@@ -864,7 +867,7 @@
                                 confPanel(confHeader(c) + '<br>Versuch ' + attempt + ' von ' + CONFIG.phase2_max_attempts +
                                     ' · Dein Begriff aus Teil 1: <b>' + caps(confederateLabel(c)) + '</b>' +
                                     (recommended === null ? '<br><b>Bitte prüfen und selbst entscheiden.</b>' :
-                                        '<br>Empfohlen: <b>' + recommended + '</b> (markiert)')) +
+                                        '<br>Empfohlen: <b>' + recommended + '</b> (markiert)') + originalLabelHTML) +
                                 '<p>Begriff der VP:</p><div class="labels"><div class="word">' + caps(term) + '</div></div>' +
                                 phase2TrafficHTML(assessment) +
                                 '<button class="btn' + (recommended === 'richtig' ? ' recommended' : '') + '" data-fb="richtig">Richtig</button>' +
