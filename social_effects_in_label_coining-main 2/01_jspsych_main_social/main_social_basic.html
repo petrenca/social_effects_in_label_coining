@@ -48,6 +48,8 @@
         .btn { font-size: 18px; padding: 8px 20px; margin: 8px; cursor: pointer; }
         .labels { display: flex; flex-wrap: wrap; justify-content: center; gap: 24px; margin: 16px 0; }
         .labels > div { flex: 1 1 220px; min-width: 0; max-width: 100%; }
+        .labels.labels-stacked { flex-direction: column; }
+        .labels.labels-stacked > div { flex: 0 1 auto; }
         .labels .word { font-size: 28px; font-weight: bold; overflow-wrap: anywhere; }
         .label-choice { max-width: 100%; box-sizing: border-box; white-space: normal; overflow-wrap: anywhere; }
         @media (max-width: 560px) { .labels > div { flex-basis: 100%; } }
@@ -223,18 +225,29 @@
         return a;
     }
 
-    // 20 concepts in a full phase: 16 targets and 4 fillers, with target-only edges.
-    // A small &n= test subset may lack enough targets to reserve both edges.
+    // 20 concepts in a full phase: 16 targets and 4 fillers, with target-only edges
+    // and at least one target between fillers. Short &n= subsets may need relaxed edges.
     function orderConcepts(concepts, seed) {
         var edge = CONFIG.filler_free_edge_trials;
         if (!Number.isInteger(edge) || edge < 0) edge = 3;
         var targets = seededShuffle(concepts.filter(function (c) { return !c.is_filler; }), seed);
-        if (targets.length < 2 * edge) return seededShuffle(concepts, seed);
         var fillers = concepts.filter(function (c) { return c.is_filler; });
-        var start = targets.slice(0, edge);
-        var end = targets.slice(targets.length - edge);
-        var middle = targets.slice(edge, targets.length - edge).concat(fillers);
-        return start.concat(seededShuffle(middle, seed ^ 0x9E3779B9), end);
+        // Separation is impossible in some tiny test subsets; keep every selected concept.
+        if (fillers.length > targets.length + 1) return seededShuffle(concepts, seed);
+        if (targets.length < 2 * edge || fillers.length > targets.length - 2 * edge + 1) edge = 0;
+
+        // Gap i is before target i (gap targets.length is after the last target).
+        // Use distinct gaps so that two fillers can never be adjacent.
+        var gaps = [];
+        for (var i = edge; i <= targets.length - edge; i++) gaps.push(i);
+        var fillerGaps = seededShuffle(gaps, seed ^ 0x9E3779B9).slice(0, fillers.length);
+        fillers = seededShuffle(fillers, seed ^ 0x85EBCA6B);
+        var ordered = [];
+        for (var j = 0; j <= targets.length; j++) {
+            if (fillerGaps.indexOf(j) !== -1) ordered.push(fillers.shift());
+            if (j < targets.length) ordered.push(targets[j]);
+        }
+        return ordered;
     }
 
     function minutesText(ms) {
@@ -553,8 +566,8 @@
         var general_intro = instructions(
             '<h2>Willkommen zum Experiment!</h2>' +
             '<p>In dieser Studie geht es darum, Bilder zu benennen und passende Begriffe dafür zu finden. ' +
-            'Eure Begriffe müssen nicht unbedingt bereits existierende Wörter sein. Wichtig ist, dass sie die Bilder, ' +
-            'eurer Meinung nach, bestmöglich beschreiben.</p>' +
+            'Eure Begriffe müssen <strong>nicht unbedingt bereits existierende Wörter</strong> sein. Wichtig ist, dass sie die Bilder, ' +
+            'eurer Meinung nach, <strong>bestmöglich</strong> beschreiben.</p>' +
             '<p>Die Anweisungen für jeden Teil werden euch auf dem Bildschirm angezeigt.</p>' +
             '<p>Klickt auf „Weiter“, wenn ihr bereit seid.</p>');
 
@@ -563,14 +576,14 @@
         //-------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
         var phase1_instructions = instructions(
             '<p>Ihr seht beide dasselbe Bild auf eurem Bildschirm.</p>' +
-            '<p> Überlegt euch unabhängig voneinander einen Begriff der das Bild bestmöglich beschreibt ' +
-            'und gebt ihn ein. Dafür habt ihr ' + minutesText(CONFIG.timing.phase1_label_entry_ms) + ' Zeit. Sprecht dabei noch nicht miteinander.</p>' +
+            '<p> Überlegt euch unabhängig voneinander <strong>einen Begriff der das Bild bestmöglich beschreibt</strong> ' +
+            'und gebt ihn ein. Dafür habt ihr <strong>' + minutesText(CONFIG.timing.phase1_label_entry_ms) + '</strong> Zeit. <strong>Sprecht dabei noch nicht miteinander</strong>.</p>' +
             '<p> Sobald ihr beide fertig seid, werden eure Begriffe gleichzeitig angezeigt. ' +
-            'Dann habt ihr ' + minutesText(CONFIG.timing.phase1_discussion_ms) + ' Zeit, um miteinander zu besprechen, welcher Begriff besser zu dem Bild passt. ' +
+            'Dann habt ihr <strong>' + minutesText(CONFIG.timing.phase1_discussion_ms) + '</strong> Zeit, um miteinander zu besprechen, welcher Begriff besser zu dem Bild passt. ' +
             'Nach Ablauf der Zeit geht es automatisch zur Auswahl weiter. Wenn ihr früher fertig seid, klickt beide auf „Weiter“.</p>' +
             '<p> Wählt anschließend auf eurem eigenen Bildschirm den Begriff aus, ' +
-            'den ihr persönlich bevorzugt. Sprecht dabei nicht mehr miteinander.</p>',
-            { step: 'phase1' });
+            'den ihr persönlich bevorzugt. <strong>Sprecht dabei nicht mehr miteinander</strong>. </p>',
+            { step: 'phase1' }); 
 
         // 1. both enter a label, then wait for the partner's label
         function phase1Label(c) {
@@ -689,7 +702,7 @@
                     el.innerHTML = screen(
                         confPanel(confHeader(c) + '<br>Bitte wählen: <b>' + caps(scripted) + '</b> (markiert)') +
                         imageHTML(c) +
-                        '<p><b style="color:#c62828">Die Diskussion ist abgeschlossen.</b> Wählt jetzt, ohne weiter miteinander zu sprechen, ' +
+                        '<p><b style="color:#c62828">Die Diskussion ist abgeschlossen.</b> Wählt jetzt, <strong>ohne weiter miteinander zu sprechen</strong>, ' +
                         'den Begriff, den ihr persönlich bevorzugt.</p>' +
                         options.map(function (o, i) {
                             var rec = isConf && (o.source === 'own') === confederateInsists(c);
@@ -732,7 +745,7 @@
                     var own = isConf ? p.confederate_choice : p.naive_choice;
                     var partner = isConf ? p.naive_choice : p.confederate_choice;
                     return screen(imageHTML(c) +
-                        '<div class="labels">' +
+                        '<div class="labels labels-stacked">' +
                         '<div>Deine Wahl<div class="word">' + caps(own) + '</div></div>' +
                         '<div>Wahl der anderen Person<div class="word">' + caps(partner) + '</div></div>' +
                         '</div>');
@@ -758,18 +771,18 @@
                 '<h2>Teil 2 (Confederate-Ansicht)</h2>' +
                 '<p>Die VP gibt für jedes Bild einen Begriff ein. Du siehst den Begriff, deinen Begriff aus Teil 1 ' +
                 'und die aktuelle Strategie, und klickst <b>Richtig</b> oder <b>Falsch</b>. ' +
-                'Maximal ' + CONFIG.phase2_max_attempts + ' Versuche pro Bild.</p>' +
+                '<strong>Maximal ' + CONFIG.phase2_max_attempts + ' Versuche </strong> pro Bild.</p>' +
                 '<p>Assertive: Grün bei deinem Begriff, Gelb bei ähnlicher Schreibweise oder möglicherweise vertauschten Wortteilen, ' +
                 'sonst Rot. Compliant: immer Grün und „Richtig“. Bei Fillern umgekehrt.</p>' +
                 '<p>Grün empfiehlt „Richtig“, Rot empfiehlt „Falsch“ (markiert). Bei Gelb prüfst du selbst. ' +
                 'Du entscheidest immer per Klick und kannst auch bei Rot „Richtig“ wählen, wenn der Begriff nah genug ist.</p>', { step: 'phase2' })
             : instructions(
                 '<p>Jetzt geht es darum, Bilder mithilfe von Begriffen richtig zu erkennen.</p>' +
-                '<p>Du siehst jeweils ein Bild auf deinem Bildschirm. Die andere Person sieht mehrere ähnliche Bilder, darunter auch deines.</p>' +
+                '<p>Du siehst jeweils <strong>ein Bild</strong> auf deinem Bildschirm. Die andere Person sieht <strong>mehrere ähnliche Bilder</strong>, darunter auch deines.</p>' +
                 '<p>Deine Aufgabe ist es, einen Begriff einzugeben, der dein Bild möglichst gut beschreibt, ' +
                 'damit die andere Person das richtige Bild auswählen kann.</p>' +
                 '<p>Nach jeder Auswahl erfahrt ihr, ob das richtige Bild ausgewählt wurde.</p>' +
-                '<p>Ihr habt maximal ' + CONFIG.phase2_max_attempts + ' Versuche pro Bild.</p>', { step: 'phase2' });
+                '<p>Ihr habt <strong>maximal ' + CONFIG.phase2_max_attempts + ' Versuche</strong> pro Bild.</p>', { step: 'phase2' });
 
         // Reached only after clicking Weiter on the local Phase 2 instructions.
         var phase2_ready = {
@@ -838,9 +851,12 @@
                             });
                         });
                     } else {
+                        var originalLabel = (phase1[c.concept_nr] || {}).naive_label;
+                        var originalLabelHTML = '<p>Participant&#39;s original label from phase 1:<br><b>' +
+                            caps(originalLabel || '—') + '</b></p>';
                         el.innerHTML = screen(
                             confPanel(confHeader(c) + '<br>Versuch ' + attempt + ' von ' + CONFIG.phase2_max_attempts +
-                                ' · Dein Begriff aus Teil 1: <b>' + caps(confederateLabel(c)) + '</b>') +
+                                ' · Dein Begriff aus Teil 1: <b>' + caps(confederateLabel(c)) + '</b>' + originalLabelHTML) +
                             '<p class="waiting">Warte auf den Begriff der VP …</p>');
                         PairSync.getPartnerValue('phase2_term_' + key, function (term) {
                             var t0 = performance.now();
@@ -851,7 +867,7 @@
                                 confPanel(confHeader(c) + '<br>Versuch ' + attempt + ' von ' + CONFIG.phase2_max_attempts +
                                     ' · Dein Begriff aus Teil 1: <b>' + caps(confederateLabel(c)) + '</b>' +
                                     (recommended === null ? '<br><b>Bitte prüfen und selbst entscheiden.</b>' :
-                                        '<br>Empfohlen: <b>' + recommended + '</b> (markiert)')) +
+                                        '<br>Empfohlen: <b>' + recommended + '</b> (markiert)') + originalLabelHTML) +
                                 '<p>Begriff der VP:</p><div class="labels"><div class="word">' + caps(term) + '</div></div>' +
                                 phase2TrafficHTML(assessment) +
                                 '<button class="btn' + (recommended === 'richtig' ? ' recommended' : '') + '" data-fb="richtig">Richtig</button>' +
@@ -908,7 +924,7 @@
 
         var phase3_instructions = instructions(
             '<p>Im letzten Teil siehst du die Bilder aus dem Experiment noch einmal.</p>' +
-            '<p>Gib zu jedem Bild den Begriff ein, der deiner Meinung nach am besten dazu passt.</p>' +
+            '<p>Gib zu jedem Bild den Begriff ein, <strong>der deiner Meinung nach am besten dazu passt</strong>.</p>' +
             '<p>Entscheide ganz für dich, wie du das Bild jetzt nennen würdest.</p>',
             { step: 'phase3' });
 

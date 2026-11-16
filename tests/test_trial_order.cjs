@@ -19,6 +19,13 @@ function sortedNumbers(concepts) {
     return conceptNumbers(concepts).sort((a, b) => a - b);
 }
 
+function assertSeparatedFillers(concepts) {
+    for (let i = 1; i < concepts.length; i++) {
+        assert.ok(!(concepts[i - 1].is_filler && concepts[i].is_filler),
+            'at least one target must separate successive fillers');
+    }
+}
+
 function createHarness(role, configSource, pageSource, csvSource) {
     let capturedTimeline;
     let capturedProperties;
@@ -133,7 +140,10 @@ function run() {
         phaseOrdersChecked: 0,
         crossRoleComparisons: 0,
         constrainedPhaseOrders: 0,
+        separatedPhaseOrders: 0,
+        relaxedEdgePhaseOrders: 0,
         fallbackPhaseOrders: 0,
+        boundaryOrdersChecked: 0,
     };
 
     function validate(result, pairID, count) {
@@ -152,15 +162,21 @@ function run() {
             assert.deepEqual(sortedNumbers(phase), sortedNumbers(selected), 'no selected concept is lost or replaced');
             assert.equal(phase.filter(concept => !concept.is_filler).length, targetCount);
             assert.equal(phase.filter(concept => concept.is_filler).length, fillerCount);
-            if (targetCount >= 6) {
+            if (targetCount >= 6 && fillerCount <= targetCount - 5) {
                 stats.constrainedPhaseOrders++;
                 assert.ok(phase.slice(0, 3).every(concept => !concept.is_filler), 'first three concepts are targets');
                 assert.ok(phase.slice(-3).every(concept => !concept.is_filler), 'last three concepts are targets');
+            } else if (fillerCount <= targetCount + 1) {
+                stats.relaxedEdgePhaseOrders++;
+            }
+            if (fillerCount <= targetCount + 1) {
+                stats.separatedPhaseOrders++;
+                assertSeparatedFillers(phase);
             } else {
                 stats.fallbackPhaseOrders++;
                 assert.deepEqual(conceptNumbers(phase), conceptNumbers(
                     context.seededShuffle(selected, expectedSeeds[index])
-                ), 'fewer than six targets must use an unrestricted seeded shuffle');
+                ), 'subsets with too few targets to separate fillers retain an unrestricted seeded shuffle');
             }
             for (const concept of phase) {
                 const row = rowsByNumber.get(concept.concept_nr);
@@ -205,6 +221,42 @@ function run() {
     }
     assert.ok(stats.fallbackPhaseOrders > 0, 'short-run fallback must be exercised');
     assert.ok(stats.constrainedPhaseOrders > 0, 'target-only edges must be exercised');
+    assert.ok(stats.separatedPhaseOrders > 0, 'filler separation must be exercised');
+    assert.ok(stats.relaxedEdgePhaseOrders > 0, 'short-run edge relaxation must be exercised');
+
+    // Cover exact-capacity gaps, conflicting edges, impossible subsets and edge=0 explicitly.
+    for (const configuredEdge of [3, 0, -1, 1.5]) {
+        context.CONFIG.filler_free_edge_trials = configuredEdge;
+        const edge = configuredEdge === 0 ? 0 : 3;
+        for (const [targetCount, fillerCount] of [
+            [0, 0], [0, 1], [0, 2], [1, 3], [2, 3], [6, 1], [6, 2], [7, 2], [16, 4], [8, 0],
+        ]) {
+            const items = Array.from({ length: targetCount + fillerCount }, (_, i) => ({
+                concept_nr: i + 1,
+                is_filler: i >= targetCount,
+            }));
+            const before = JSON.stringify(items);
+            for (let seed = 1; seed <= 10; seed++) {
+                const ordered = Array.from(context.orderConcepts(items, seed));
+                stats.boundaryOrdersChecked++;
+                assert.equal(ordered.length, items.length);
+                assert.equal(new Set(ordered).size, items.length, 'every input object appears once');
+                assert.deepEqual(sortedNumbers(ordered), sortedNumbers(items));
+                assert.deepEqual(conceptNumbers(ordered), conceptNumbers(context.orderConcepts(items, seed)));
+                assert.equal(JSON.stringify(items), before, 'ordering must not mutate its input');
+                if (fillerCount > targetCount + 1) {
+                    assert.deepEqual(conceptNumbers(ordered), conceptNumbers(context.seededShuffle(items, seed)));
+                    continue;
+                }
+                assertSeparatedFillers(ordered);
+                if (edge > 0 && targetCount >= 2 * edge && fillerCount <= targetCount - 2 * edge + 1) {
+                    assert.ok(ordered.slice(0, edge).every(concept => !concept.is_filler));
+                    assert.ok(ordered.slice(-edge).every(concept => !concept.is_filler));
+                }
+            }
+        }
+    }
+    context.CONFIG.filler_free_edge_trials = 3;
     return stats;
 }
 
