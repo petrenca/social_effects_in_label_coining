@@ -250,6 +250,31 @@
         return ordered;
     }
 
+    // Keep the previous phase's final two concepts out of the next phase's first two slots.
+    // Same-category swaps preserve every filler position, including target-only edges.
+    function separatePhaseOrders(previousOrder, nextOrder, seed) {
+        var order = nextOrder.slice();
+        var excluded = new Set(previousOrder.slice(-2).map(function (c) { return c.concept_nr; }));
+        var replacementIndices = seededShuffle(order.map(function (c, i) { return i; }).slice(2), seed ^ 0xA511E9B3);
+        var unresolvedConcepts = [];
+        for (var i = 0; i < Math.min(2, order.length); i++) {
+            if (!excluded.has(order[i].concept_nr)) continue;
+            var replacement = replacementIndices.find(function (j) {
+                return !excluded.has(order[j].concept_nr) && order[j].is_filler === order[i].is_filler;
+            });
+            // Tiny test subsets can make these constraints incompatible. Keep every concept
+            // and report the remaining conflicts on the experimenter's setup screen and in data.
+            if (replacement === undefined) {
+                unresolvedConcepts.push(order[i].concept_nr);
+                continue;
+            }
+            var swap = order[i];
+            order[i] = order[replacement];
+            order[replacement] = swap;
+        }
+        return { order: order, unresolvedConcepts: unresolvedConcepts };
+    }
+
     function minutesText(ms) {
         var m = Math.round(ms / 60000);
         return m === 1 ? '1 Minute' : m + ' Minuten';
@@ -268,17 +293,6 @@
         if (TEST_ASSERTIVENESS) condition.assertiveness = TEST_ASSERTIVENESS;
         PairSync.join(pairID, role, TEST_MODE);
 
-        // these columns are added to every row of the data file
-        jsPsych.data.addProperties({
-            pair_id: pairID,
-            role: role,
-            assertiveness: condition.assertiveness,
-            assigned_assertiveness: assignedAssertiveness,
-            test_condition_override: TEST_ASSERTIVENESS !== null,
-            label_list: condition.label_list,
-            test_mode: TEST_MODE,
-        });
-
         var concepts = stimuliRows.map(function (r) {
             var goodness = getLabelGoodness(pairID, parseInt(r.concept_nr), r.item_type);
             return {
@@ -292,6 +306,33 @@
         });
         // test runs (&n=...): a subset of the items, chosen by pair ID - other pair IDs give other items
         if (N_OVERRIDE > 0) concepts = seededShuffle(concepts, pairID).slice(0, N_OVERRIDE);
+
+        var phase1Order = orderConcepts(concepts, pairID * 10 + 1);
+        var phase2Transition = separatePhaseOrders(phase1Order, orderConcepts(concepts, pairID * 10 + 2), pairID * 10 + 2);
+        var phase2Order = phase2Transition.order;
+        // Repairing Phase 2 can change its tail, so Phase 3 must use the adjusted order.
+        var phase3Transition = separatePhaseOrders(phase2Order, orderConcepts(concepts, pairID * 10 + 3), pairID * 10 + 3);
+        var phase3Order = phase3Transition.order;
+        var phaseBoundaryWarnings = [];
+        if (phase2Transition.unresolvedConcepts.length) {
+            phaseBoundaryWarnings.push('Teil 1 → 2: Bildnummern ' + phase2Transition.unresolvedConcepts.join(', '));
+        }
+        if (phase3Transition.unresolvedConcepts.length) {
+            phaseBoundaryWarnings.push('Teil 2 → 3: Bildnummern ' + phase3Transition.unresolvedConcepts.join(', '));
+        }
+
+        // these columns are added to every row of the data file
+        jsPsych.data.addProperties({
+            pair_id: pairID,
+            role: role,
+            assertiveness: condition.assertiveness,
+            assigned_assertiveness: assignedAssertiveness,
+            test_condition_override: TEST_ASSERTIVENESS !== null,
+            label_list: condition.label_list,
+            test_mode: TEST_MODE,
+            phase2_boundary_conflicts: phase2Transition.unresolvedConcepts.join(','),
+            phase3_boundary_conflicts: phase3Transition.unresolvedConcepts.join(','),
+        });
 
         // responses of both participants, filled during the experiment, by concept_nr
         var phase1 = {};   // { naive_label, confederate_label, naive_choice, confederate_choice }
@@ -513,6 +554,10 @@
                 (isConf ? ' &nbsp;|&nbsp; Bedingung: <b>' + condition.assertiveness + ' / Liste ' + condition.label_list + '</b>' : '') +
                 ' &nbsp;|&nbsp; Konzepte: <b>' + concepts.length + '</b>' +
                 (TEST_MODE ? ' &nbsp;|&nbsp; <b style="color:red;">TESTMODUS</b>' : '') + '</p>' +
+                (phaseBoundaryWarnings.length ? '<p id="phase-boundary-warning" style="color:#c62828">' +
+                    'Die Abstandsregel zwischen den Phasen kann bei dieser Bildauswahl und unveränderten Füllerpositionen ' +
+                    'nicht vollständig eingehalten werden (' + phaseBoundaryWarnings.join('; ') + '). ' +
+                    'Alle ausgewählten Bilder bleiben erhalten.</p>' : '') +
                 (isConf && !labelSimilarityReady() ? '<p style="color:#c62828">Die Ampel-Prüfung wurde nicht geladen. ' +
                     'Bitte prüfe, ob resources/label_similarity.js auf dem Server vorhanden ist, und lade die Seite neu. ' +
                     'Ohne diese Datei ist nur manuelles Feedback möglich.</p>' : ''),
@@ -755,7 +800,7 @@
             };
         }
 
-        var phase1_trials = orderConcepts(concepts, pairID * 10 + 1).map(function (c) {
+        var phase1_trials = phase1Order.map(function (c) {
             var t = [phase1Label(c), phase1Discussion(c), phase1Choice(c)];
             if (CONFIG.phase1_reveal_choices) t.push(phase1Reveal(c));
             return { timeline: t };
@@ -899,7 +944,7 @@
             };
         }
 
-        var phase2_trials = orderConcepts(concepts, pairID * 10 + 2).map(phase2Concept);
+        var phase2_trials = phase2Order.map(phase2Concept);
 
         //-------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
         //----------------------Phase 3 - Private naming (naive participant only)---------------------------------------------------------------------------------------------------//
@@ -954,7 +999,7 @@
         }
 
         var phase3 = {
-            timeline: [phase3_instructions].concat(orderConcepts(concepts, pairID * 10 + 3).map(phase3Naming)),
+            timeline: [phase3_instructions].concat(phase3Order.map(phase3Naming)),
             conditional_function: function () { return !isConf; },
         };
 

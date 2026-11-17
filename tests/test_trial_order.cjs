@@ -26,6 +26,22 @@ function assertSeparatedFillers(concepts) {
     }
 }
 
+function boundaryConflicts(previous, next) {
+    const excluded = new Set(conceptNumbers(previous.slice(-2)));
+    return next.slice(0, 2).filter(concept => excluded.has(concept.concept_nr));
+}
+
+function minimumBoundaryConflicts(previous, next) {
+    const excluded = new Set(conceptNumbers(previous.slice(-2)));
+    return [false, true].reduce((total, isFiller) => {
+        const headSlots = next.slice(0, 2).filter(concept => concept.is_filler === isFiller).length;
+        const allowed = next.filter(concept =>
+            concept.is_filler === isFiller && !excluded.has(concept.concept_nr)
+        ).length;
+        return total + Math.max(0, headSlots - allowed);
+    }, 0);
+}
+
 function createHarness(role, configSource, pageSource, csvSource) {
     let capturedTimeline;
     let capturedProperties;
@@ -46,7 +62,9 @@ function createHarness(role, configSource, pageSource, csvSource) {
         jsPsychFullscreen: {},
         jsPsychPreload: {},
         initJsPsych: () => ({
-            data: { addProperties: properties => { capturedProperties = properties; } },
+            data: { addProperties: properties => {
+                capturedProperties = Object.assign({}, capturedProperties, properties);
+            } },
             randomization: { shuffle: array => array.slice() },
             run: timeline => { capturedTimeline = timeline; },
         }),
@@ -103,10 +121,19 @@ function createHarness(role, configSource, pageSource, csvSource) {
         assert.equal(capturedProperties.pair_id, pairID);
         assert.equal(capturedProperties.role, role);
         assert.equal(JSON.stringify(rows), inputBefore, 'timeline construction must not mutate CSV rows');
-        return { phases, seeds: seeds.slice() };
+        const setup = Array.from(capturedTimeline).find(node =>
+            node.data && node.data.phase === 'setup' && typeof node.stimulus === 'string'
+        );
+        assert.ok(setup, 'the experimenter setup screen must be present');
+        return {
+            phases,
+            seeds: seeds.slice(),
+            boundaryConflicts: [capturedProperties.phase2_boundary_conflicts, capturedProperties.phase3_boundary_conflicts],
+            hasBoundaryWarning: setup.stimulus.includes('id="phase-boundary-warning"'),
+        };
     }
 
-    return { build, context, rows };
+    return { build, context, rows, orderConcepts: actualOrderConcepts };
 }
 
 function run() {
@@ -144,6 +171,10 @@ function run() {
         relaxedEdgePhaseOrders: 0,
         fallbackPhaseOrders: 0,
         boundaryOrdersChecked: 0,
+        phaseTransitionsChecked: 0,
+        repairedTransitions: 0,
+        shortRunConflicts: 0,
+        boundaryHelperCases: 0,
     };
 
     function validate(result, pairID, count) {
@@ -157,6 +188,28 @@ function run() {
 
         result.phases.forEach((phase, index) => {
             stats.phaseOrdersChecked++;
+            const originalOrder = Array.from(harnesses[0].orderConcepts(selected, expectedSeeds[index]));
+            assert.deepEqual(Array.from(phase, concept => concept.is_filler),
+                Array.from(originalOrder, concept => concept.is_filler),
+                'boundary repair must preserve every target/filler position');
+            if (index === 0) {
+                assert.deepEqual(conceptNumbers(phase), conceptNumbers(originalOrder),
+                    'phase 1 keeps its original seeded order');
+            } else {
+                stats.phaseTransitionsChecked++;
+                const previous = result.phases[index - 1];
+                const conflicts = boundaryConflicts(previous, phase);
+                const minimumConflicts = minimumBoundaryConflicts(previous, originalOrder);
+                assert.equal(conflicts.length, minimumConflicts,
+                    'both opening positions must exclude both preceding final pictures whenever category slots allow it');
+                assert.equal(result.boundaryConflicts[index - 1], conceptNumbers(conflicts).join(','),
+                    'saved diagnostics identify every unresolved boundary conflict');
+                if (boundaryConflicts(previous, originalOrder).length > conflicts.length) stats.repairedTransitions++;
+                if (conflicts.length) {
+                    assert.ok(count, 'full experiment boundaries must always be repairable');
+                    stats.shortRunConflicts++;
+                }
+            }
             assert.equal(phase.length, selected.length, 'each concept occurs once in each phase');
             assert.equal(new Set(conceptNumbers(phase)).size, selected.length, 'no concept is duplicated');
             assert.deepEqual(sortedNumbers(phase), sortedNumbers(selected), 'no selected concept is lost or replaced');
@@ -174,9 +227,9 @@ function run() {
                 assertSeparatedFillers(phase);
             } else {
                 stats.fallbackPhaseOrders++;
-                assert.deepEqual(conceptNumbers(phase), conceptNumbers(
+                assert.deepEqual(conceptNumbers(originalOrder), conceptNumbers(
                     context.seededShuffle(selected, expectedSeeds[index])
-                ), 'subsets with too few targets to separate fillers retain an unrestricted seeded shuffle');
+                ), 'subsets with too few targets start from an unrestricted seeded shuffle before boundary repair');
             }
             for (const concept of phase) {
                 const row = rowsByNumber.get(concept.concept_nr);
@@ -191,6 +244,8 @@ function run() {
                 assert.equal(phase.filter(concept => concept.label_goodness === 'middle').length, 4);
             }
         });
+        assert.equal(result.hasBoundaryWarning, result.boundaryConflicts.some(value => value !== ''),
+            'the experimenter sees a warning exactly when short-run boundary conflicts remain');
         assert.equal(JSON.stringify(candidates), originalCandidates, 'ordering must not mutate its input');
     }
 
@@ -223,6 +278,65 @@ function run() {
     assert.ok(stats.constrainedPhaseOrders > 0, 'target-only edges must be exercised');
     assert.ok(stats.separatedPhaseOrders > 0, 'filler separation must be exercised');
     assert.ok(stats.relaxedEdgePhaseOrders > 0, 'short-run edge relaxation must be exercised');
+    assert.ok(stats.repairedTransitions > 0, 'cross-phase repetition must be repaired');
+    assert.ok(stats.shortRunConflicts > 0, 'unrepairable short-run boundaries must be reported');
+
+    // Force both Phase 2 replacements into its tail. Phase 3 must exclude that adjusted tail,
+    // even though its original head was allowed by the original Phase 2 tail.
+    const fixtureCSV = csvSource.trim().split(/\r?\n/).slice(0, 5).join('\n');
+    for (const role of ['naive', 'confederate']) {
+        const fixture = createHarness(role, configSource, inlineScripts[0], fixtureCSV);
+        const fixedOrders = [[1, 2, 3, 4], [3, 4, 1, 2], [3, 4, 1, 2]];
+        fixture.context.orderConcepts = (concepts, seed) => fixedOrders[seed % 10 - 1].map(number =>
+            concepts.find(concept => concept.concept_nr === number)
+        );
+        const result = fixture.build(1, 0);
+        assert.deepEqual(conceptNumbers(result.phases[0]), fixedOrders[0]);
+        assert.notDeepEqual(conceptNumbers(result.phases[1].slice(-2)), fixedOrders[1].slice(-2),
+            'the fixture must change the Phase 2 tail');
+        assert.equal(boundaryConflicts(result.phases[0], result.phases[1]).length, 0);
+        assert.equal(boundaryConflicts(result.phases[1], result.phases[2]).length, 0,
+            'Phase 3 excludes the final adjusted Phase 2 tail');
+        assert.deepEqual(result.boundaryConflicts, ['', '']);
+        assert.equal(result.hasBoundaryWarning, false);
+    }
+
+    const target = number => ({ concept_nr: number, is_filler: false });
+    const filler = number => ({ concept_nr: number, is_filler: true });
+    const t = [1, 2, 3, 4].map(target);
+    const f = [5, 6].map(filler);
+    const helperCases = [
+        { previous: [], next: [] },
+        { previous: [], next: [t[0]] },
+        { previous: t, next: t },
+        { previous: t, next: [t[2], t[0], t[1], t[3]] },
+        { previous: t, next: [t[2], t[3], t[0], t[1]] },
+        // A unique filler cannot swap with an allowed target, even in a four-picture run.
+        { previous: [t[0], t[1], t[2], f[0]], next: [f[0], t[0], t[1], t[2]] },
+        { previous: [f[1], t[0], t[1], t[2], f[0]], next: [f[0], t[0], f[1], t[1], t[2]] },
+        ...[1, 2, 3].map(count => ({ previous: t.slice(0, count), next: t.slice(0, count).reverse() })),
+    ];
+    for (const { previous, next } of helperCases) {
+        const before = JSON.stringify([previous, next]);
+        for (let seed = 1; seed <= 10; seed++) {
+            const result = context.separatePhaseOrders(previous, next, seed);
+            stats.boundaryHelperCases++;
+            const order = Array.from(result.order);
+            const conflicts = boundaryConflicts(previous, order);
+            assert.notEqual(result.order, next, 'repair returns an independent order array');
+            assert.deepEqual(sortedNumbers(order), sortedNumbers(next), 'repair retains every input picture');
+            assert.deepEqual(order.map(concept => concept.is_filler), next.map(concept => concept.is_filler));
+            assert.equal(conflicts.length, minimumBoundaryConflicts(previous, next));
+            assert.deepEqual(Array.from(result.unresolvedConcepts), conceptNumbers(conflicts));
+            assert.equal(JSON.stringify([previous, next]), before, 'repair leaves both inputs unchanged');
+            const repeated = context.separatePhaseOrders(previous, next, seed);
+            assert.deepEqual(conceptNumbers(repeated.order), conceptNumbers(order));
+            assert.deepEqual(Array.from(repeated.unresolvedConcepts), Array.from(result.unresolvedConcepts));
+            if (boundaryConflicts(previous, next).length === 0) {
+                assert.deepEqual(conceptNumbers(order), conceptNumbers(next), 'safe orders keep their original order');
+            }
+        }
+    }
 
     // Cover exact-capacity gaps, conflicting edges, impossible subsets and edge=0 explicitly.
     for (const configuredEdge of [3, 0, -1, 1.5]) {
