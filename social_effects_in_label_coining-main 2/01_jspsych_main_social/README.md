@@ -77,6 +77,24 @@ If `resources/label_similarity.js` fails to load or comparison throws an error, 
 
 When moving the experiment to another computer or server, include the new `resources/label_similarity.js` file. A missing helper is reported on the confederate's experimenter setup screen. If Phase 2 remains on “Warte auf den Begriff der VP …” in an older running page, open `http://<server-address>:<port>/resources/label_similarity.js` in the confederate's browser to check that the file is served, then reload both experiment pages and start a fresh pair session. Updating only one running browser can leave the pair in different steps.
 
+### Room change after Phase 2
+
+After both browsers reach the end of Phase 2, the confederate's transition and persistent final screen use the same message to support the explanation that the other person continues in another room:
+
+> **Dieser Teil ist abgeschlossen.**
+>
+> Bitte verlasse jetzt den Raum und melde dich bei der Versuchsleitung. Sie begleitet dich in einen anderen Raum, in dem du den letzten Teil des Experiments bearbeitest.
+
+The confederate should wait until saving and fullscreen exit finish before leaving, and leave these instructions visible on the unattended screen. If the final save fails, the CSV is downloaded and a warning requires **Weiter**; the room-change instructions are also visible there, and the page omits the filename. Acknowledge the warning before leaving so the persistent room-change screen is displayed. The downloaded file retains its normal role-containing filename.
+
+The participant remains on the existing waiting screen until alone, then clicks **Weiter** to start private naming. Phase 3 still runs only for the participant; synchronization and the save sequence remain the same.
+
+Verify this transition in matched test sessions on both browsers:
+
+1. Finish Phase 2 and allow both saves and fullscreen exit to complete on the confederate's computer. Check that the room-change message remains visible without a role label or a statement that participation has ended.
+2. Leave that screen open while the participant clicks **Weiter** and begins Phase 3. Confirm the participant can name pictures privately and the confederate's screen retains the room-change message.
+3. Repeat with the confederate's `save_data_test.php` requests blocked in browser developer tools, keeping synchronization requests available. Confirm the CSV download fallback works, the final-save warning shows the room-change instructions without a filename, and **Weiter** leads through fullscreen exit to the persistent message.
+
 ### Saved data
 
 Data: `data/social_<pair>_<role>_<start time>.csv`, saved after phase 1, phase 2 and at the end, overwriting the same file each time. If saving fails, the file is downloaded in the browser instead.

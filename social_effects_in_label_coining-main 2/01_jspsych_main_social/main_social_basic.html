@@ -520,6 +520,11 @@
             };
         }
 
+        // Keep the unattended screen consistent with the room-change explanation.
+        var roomChangeMessage = '<h2>Dieser Teil ist abgeschlossen.</h2>' +
+            '<p>Bitte verlasse jetzt den Raum und melde dich bei der Versuchsleitung. ' +
+            'Sie begleitet dich in einen anderen Raum, in dem du den letzten Teil des Experiments bearbeitest.</p>';
+
         // saves everything collected so far (same file name every time, so the file is overwritten)
         function saveTrial(isFinal) {
             return {
@@ -537,8 +542,10 @@
                             // keep the data in any case: download it in the browser
                             jsPsych.data.get().localSave('csv', filename);
                             if (!isFinal) return ctx.finish({ saved: false, filename: filename });
-                            el.innerHTML = screen('<p style="color:#c62828">Die Daten konnten nicht auf dem Server gespeichert werden ' +
-                                'und wurden stattdessen als Download gespeichert (' + escapeHTML(filename) + ').</p>' +
+                            el.innerHTML = screen((isConf ? roomChangeMessage : '') +
+                                '<p style="color:#c62828">Die Daten konnten nicht auf dem Server gespeichert werden ' +
+                                'und wurden stattdessen als Download gespeichert' +
+                                (isConf ? '.' : ' (' + escapeHTML(filename) + ').') + '</p>' +
                                 '<button class="btn" id="go">Weiter</button>');
                             el.querySelector('#go').addEventListener('click', function () {
                                 ctx.finish({ saved: false, filename: filename });
@@ -963,7 +970,7 @@
                 showWaiting(el);
                 PairSync.waitForPartner('phase2_end', function () {
                     el.innerHTML = '<div class="instructions">' + (isConf
-                        ? '<h2>Danke, du bist mit deinem Teil jetzt fertig.</h2><p>Bitte verlasse jetzt den Raum.</p>'
+                        ? roomChangeMessage
                         : '<h2>Dieser Teil ist abgeschlossen.</h2>' +
                           '<p>Die andere Person verlässt jetzt den Raum. Bitte warte, bis du alleine bist, und klicke anschließend auf „Weiter“.</p>' +
                           '<button class="btn" id="go">Weiter</button>') + '</div>';
@@ -1021,7 +1028,7 @@
         var final = {
             type: jsPsychHtmlButtonResponse,
             stimulus: isConf
-                ? '<p><b>Confederate-Teil beendet.</b> Daten gespeichert.</p>'
+                ? '<div class="instructions">' + roomChangeMessage + '</div>'
                 : '<p><b>Vielen Dank! Du hast alle Aufgaben abgeschlossen.</b></p>' +
                   '<p>Bitte bleib noch kurz sitzen und warte auf die Versuchsleitung.</p>',
             choices: [],

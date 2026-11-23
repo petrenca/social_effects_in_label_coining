@@ -85,6 +85,8 @@ The launcher also exposes the test condition selector when **Confederate** and *
 2. **Sender–receiver task:** both people must click **Weiter** after reading their Phase 2 instructions before either enters the task. The participant describes a picture. The confederate sees the description and a traffic light, then supplies **Richtig** or **Falsch** feedback; the current implementation does not present a picture-selection grid to the confederate. Both must acknowledge each feedback screen before the next attempt or concept. There are up to three attempts per concept.
 3. **Private naming:** the participant names the pictures again without the confederate. Responses are scored for adoption of the confederate's assigned label.
 
+After Phase 2, the confederate's transition and persistent final screen give the same neutral instructions to leave the room, contact the experimenter and continue the last part in another room. Before leaving, the confederate should wait for saving and fullscreen exit to finish, acknowledge any download-fallback warning with **Weiter**, and leave the room-change instructions visible. The participant waits until alone before clicking **Weiter** to enter Phase 3.
+
 Pair IDs cycle through the following assignments:
 
 | Pair ID | Assertiveness on targets | Label list |
@@ -125,7 +127,7 @@ The basic experiment saves after Phase 1, Phase 2 and at completion, updating th
 | Ordinary | `data/social_<pair>_<role>_<start_time>.csv` | `sync/state/pair_<pair>.json` |
 | Test | `data_test/TEST_social_<pair>_<role>_<start_time>.csv` | `sync/state_test/pair_<pair>.json` |
 
-If server saving fails, the browser downloads the CSV instead. Data includes pair ID, role, effective and assigned assertiveness, test-condition override, label list and test mode, plus trial-specific concept and response fields. Pair the two roles' files using `pair_id` and the relevant trial identifiers.
+If server saving fails, the browser downloads the CSV instead. A final-save failure requires **Weiter** to continue; the confederate's warning also shows the neutral room-change instructions and omits the filename from the page. Downloaded filenames retain the role for data handling. Data includes pair ID, role, effective and assigned assertiveness, test-condition override, label list and test mode, plus trial-specific concept and response fields. Pair the two roles' files using `pair_id` and the relevant trial identifiers.
 
 ## Stimuli and unfinished work
 
