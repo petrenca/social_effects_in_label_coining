@@ -65,6 +65,7 @@
         /* only on the confederate's computer */
         .conf { background: #fff8e1; border: 2px solid #f9a825; border-radius: 6px; padding: 8px 14px;
                 margin: 12px auto; max-width: 760px; text-align: left; font-size: 16px; }
+        .conf.conf--filler { background: #e3f2fd; border-color: #1976d2; }
         .conf ul { margin: 4px 0; }
         .phase2-assigned-label { margin: 20px 0 8px; padding-top: 12px; border-top: 1px solid #f9a825; }
         .phase2-confederate-label { display: block; margin-top: 4px; font-size: 24px; font-weight: bold;
@@ -427,7 +428,12 @@
         //-------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
         function screen(html) { return '<div class="screen">' + html + '</div>'; }
         function imageHTML(c) { return '<img class="stim" src="' + c.image + '">'; }
-        function confPanel(html) { return isConf ? '<div class="conf">' + html + '</div>' : ''; }
+        function confPanel(html, modifier) {
+            return isConf ? '<div class="conf' + (modifier ? ' ' + modifier : '') + '">' + html + '</div>' : '';
+        }
+        function phase1ConfPanel(c, html) {
+            return confPanel(html, c.is_filler ? 'conf--filler' : '');
+        }
         function confHeader(c) {
             return 'Bedingung: <b>' + condition.assertiveness + '</b> · Bild ' + c.concept_nr + (c.is_filler ? ' · <b>FILLER</b>' : '') +
                 ' · Label: <b>' + c.label_goodness + '</b>' +
@@ -658,7 +664,7 @@
                         var timeExceeded = false;
                         var labelSubmitted = false;
                         el.innerHTML = screen(
-                            confPanel(confHeader(c) + '<br>Bitte diesen Begriff eingeben: <b style="font-size:20px">' +
+                            phase1ConfPanel(c, confHeader(c) + '<br>Bitte diesen Begriff eingeben: <b style="font-size:20px">' +
                                 caps(c.scripted_label) + '</b>') +
                             imageHTML(c) +
                             '<p>Welcher Begriff beschreibt dieses Bild am besten?</p>' +
@@ -713,7 +719,7 @@
                     var doneKey = 'phase1_discussion_done_c' + c.concept_nr;
                     var confirmed = false;
                     el.innerHTML = screen(
-                        confPanel(confHeader(c) + '<br>Am Ende wählen: <b>' +
+                        phase1ConfPanel(c, confHeader(c) + '<br>Am Ende wählen: <b>' +
                             caps(phase1ConfederateChoice(c, own, partner)) + '</b><ul>' + phrases + '</ul>') +
                         imageHTML(c) +
                         '<div class="labels">' +
@@ -760,7 +766,7 @@
                         { label: partner, source: 'partner', caption: 'Begriff der anderen Person' },
                     ]);
                     el.innerHTML = screen(
-                        confPanel(confHeader(c) + '<br>Bitte wählen: <b>' + caps(scripted) + '</b> (markiert)') +
+                        phase1ConfPanel(c, confHeader(c) + '<br>Bitte wählen: <b>' + caps(scripted) + '</b> (markiert)') +
                         imageHTML(c) +
                         '<p><b style="color:#c62828">Die Diskussion ist abgeschlossen.</b> Wählt jetzt, <strong>ohne weiter miteinander zu sprechen</strong>, ' +
                         'den Begriff, den ihr persönlich bevorzugt.</p>' +
