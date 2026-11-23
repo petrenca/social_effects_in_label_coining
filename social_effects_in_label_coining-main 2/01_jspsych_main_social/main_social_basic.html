@@ -43,6 +43,9 @@
                   overflow-wrap: anywhere; }
         .screen img.stim { max-height: 45vh; max-width: 100%; border-radius: 6px; }
         .instructions { max-width: 760px; text-align: left; line-height: 1.5; }
+        .phase2-example { margin: 0; }
+        .phase2-example img { display: block; max-width: 100%; max-height: calc(100vh - 200px);
+                              width: auto; height: auto; margin: 12px auto; }
         .label-input { font-size: 22px; padding: 6px 10px; width: 320px; max-width: 100%; box-sizing: border-box; }
         .input-error { color: #c62828; }
         .btn { font-size: 18px; padding: 8px 20px; margin: 8px; cursor: pointer; }
@@ -103,6 +106,7 @@
         ? { saveData: 'save_data_test.php', filePrefix: 'TEST_social_' }
         : { saveData: 'save_data.php', filePrefix: 'social_' };
     var START_TIME = Date.now();
+    var PHASE2_EXAMPLE_IMAGE = 'stimuli/Example%20image_Phase%202.png';
 
     if ((role !== 'naive' && role !== 'confederate') || !(pairID > 0)) {
         showLauncher();
@@ -609,7 +613,7 @@
 
         var preload = {
             type: jsPsychPreload,
-            images: concepts.map(function (c) { return c.image; }),
+            images: concepts.map(function (c) { return c.image; }).concat(isConf ? [] : [PHASE2_EXAMPLE_IMAGE]),
         };
 
         var enter_fullscreen = {
@@ -840,7 +844,18 @@
                 '<p>Nach jeder Auswahl erfahrt ihr, ob das richtige Bild ausgewählt wurde.</p>' +
                 '<p>Ihr habt <strong>maximal ' + CONFIG.phase2_max_attempts + ' Versuche</strong> pro Bild.</p>', { step: 'phase2' });
 
-        // Reached only after clicking Weiter on the local Phase 2 instructions.
+        var phase2_instruction_pages = [phase2_instructions];
+        if (!isConf) {
+            phase2_instruction_pages.push(instructions(
+                '<figure class="phase2-example">' +
+                '<figcaption><strong>Beispiel für die Bildauswahl der anderen Person</strong><br>' +
+                'Die andere Person wählt anhand deines Begriffs das passende Bild aus.</figcaption>' +
+                '<img src="' + PHASE2_EXAMPLE_IMAGE + '" ' +
+                'alt="Beispielansicht der anderen Person: 16 Bilder in einem Raster unter der Aufforderung „Wähl das richtige Bild aus:“." ' +
+                'width="1448" height="1086"></figure>', { step: 'phase2_example' }));
+        }
+
+        // Reached only after clicking Weiter on every local Phase 2 instruction page.
         var phase2_ready = {
             type: jsPsychPairTrial,
             data: { phase: 'phase2', step: 'instructions_ready' },
@@ -1041,7 +1056,9 @@
         var timeline = [].concat(
             [experimenter_screen, connect, preload, enter_fullscreen, general_intro, phase1_instructions],
             phase1_trials,
-            [saveTrial(false), phase2_instructions, phase2_ready],
+            [saveTrial(false)],
+            phase2_instruction_pages,
+            [phase2_ready],
             phase2_trials,
             [saveTrial(false), phase2_end, phase3, saveTrial(true), exit_fullscreen, final]
         );

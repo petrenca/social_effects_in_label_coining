@@ -698,11 +698,31 @@ function run() {
                 assert.ok(index >= 0, 'Phase 2 instructions must be on the real timeline');
                 assert.equal(view.timeline[index].type, 'html-button-response');
                 assert.deepEqual(Array.from(view.timeline[index].choices), ['Weiter']);
+                assert.doesNotMatch(view.timeline[index].stimulus, /phase2-example|<img/,
+                    'the task explanation must remain separate from the example page');
+                const examplePages = view.timeline.filter(node =>
+                    node.data?.phase === 'instructions' && node.data?.step === 'phase2_example');
+                assert.equal(examplePages.length, role === 'naive' ? 1 : 0,
+                    'only the participant receives the example instruction page');
+                if (role === 'naive') {
+                    const example = examplePages[0];
+                    assert.equal(view.timeline[index + 1], example,
+                        'the first Weiter must open the example before signaling readiness');
+                    assert.equal(example.type, 'html-button-response');
+                    assert.deepEqual(Array.from(example.choices), ['Weiter']);
+                    assert.equal(example.trial_duration ?? null, null);
+                    assert.equal(example.stimulus_duration ?? null, null);
+                    assert.match(example.stimulus, /<figure class="phase2-example">/);
+                    assert.match(example.stimulus, /Beispiel für die Bildauswahl der anderen Person/);
+                    assert.match(example.stimulus, /<img[^>]*src="stimuli\/Example%20image_Phase%202\.png"/);
+                    assert.match(example.stimulus, /alt="[^"]+"/);
+                }
+                const gateIndex = index + (role === 'naive' ? 2 : 1);
                 const gate = view.find('phase2', 'instructions_ready', null);
-                assert.equal(view.timeline[index + 1], gate,
-                    'clicking Weiter must enter the shared readiness gate');
+                assert.equal(view.timeline[gateIndex], gate,
+                    'only the final instruction page may lead to the shared readiness gate');
                 assert.equal(gate.type, 'pair-trial');
-                const task = view.timeline[index + 2]?.timeline?.[0];
+                const task = view.timeline[gateIndex + 1]?.timeline?.[0];
                 assert.equal(task?.data?.phase, 'phase2');
                 assert.equal(task?.data?.step, 'attempt',
                     'the first task must follow the gate');
