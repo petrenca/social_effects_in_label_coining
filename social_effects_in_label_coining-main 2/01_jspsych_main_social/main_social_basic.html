@@ -43,6 +43,9 @@
                   overflow-wrap: anywhere; }
         .screen img.stim { max-height: 45vh; max-width: 100%; border-radius: 6px; }
         .instructions { max-width: 760px; text-align: left; line-height: 1.5; }
+        .phase2-example { margin: 0; }
+        .phase2-example img { display: block; max-width: 100%; max-height: calc(100vh - 200px);
+                              width: auto; height: auto; margin: 12px auto; }
         .label-input { font-size: 22px; padding: 6px 10px; width: 320px; max-width: 100%; box-sizing: border-box; }
         .input-error { color: #c62828; }
         .btn { font-size: 18px; padding: 8px 20px; margin: 8px; cursor: pointer; }
@@ -62,7 +65,12 @@
         /* only on the confederate's computer */
         .conf { background: #fff8e1; border: 2px solid #f9a825; border-radius: 6px; padding: 8px 14px;
                 margin: 12px auto; max-width: 760px; text-align: left; font-size: 16px; }
+        .conf.conf--filler { background: #e3f2fd; border-color: #1976d2; }
         .conf ul { margin: 4px 0; }
+        .phase2-assigned-label { margin: 20px 0 8px; padding-top: 12px; border-top: 1px solid #f9a825; }
+        .phase2-confederate-label { display: block; margin-top: 4px; font-size: 24px; font-weight: bold;
+                                   line-height: 1.35; color: #17365d;
+                                   white-space: normal; overflow-wrap: anywhere; }
         .btn.recommended { outline: 4px solid #f9a825; }
         .traffic-light { display: flex; align-items: center; gap: 16px; text-align: left; padding: 12px 16px;
                          margin: 16px auto; max-width: 620px; border: 2px solid currentColor; border-radius: 8px; }
@@ -99,6 +107,7 @@
         ? { saveData: 'save_data_test.php', filePrefix: 'TEST_social_' }
         : { saveData: 'save_data.php', filePrefix: 'social_' };
     var START_TIME = Date.now();
+    var PHASE2_EXAMPLE_IMAGE = 'stimuli/Example%20image_Phase%202.png';
 
     if ((role !== 'naive' && role !== 'confederate') || !(pairID > 0)) {
         showLauncher();
@@ -250,6 +259,31 @@
         return ordered;
     }
 
+    // Keep the previous phase's final two concepts out of the next phase's first two slots.
+    // Same-category swaps preserve every filler position, including target-only edges.
+    function separatePhaseOrders(previousOrder, nextOrder, seed) {
+        var order = nextOrder.slice();
+        var excluded = new Set(previousOrder.slice(-2).map(function (c) { return c.concept_nr; }));
+        var replacementIndices = seededShuffle(order.map(function (c, i) { return i; }).slice(2), seed ^ 0xA511E9B3);
+        var unresolvedConcepts = [];
+        for (var i = 0; i < Math.min(2, order.length); i++) {
+            if (!excluded.has(order[i].concept_nr)) continue;
+            var replacement = replacementIndices.find(function (j) {
+                return !excluded.has(order[j].concept_nr) && order[j].is_filler === order[i].is_filler;
+            });
+            // Tiny test subsets can make these constraints incompatible. Keep every concept
+            // and report the remaining conflicts on the experimenter's setup screen and in data.
+            if (replacement === undefined) {
+                unresolvedConcepts.push(order[i].concept_nr);
+                continue;
+            }
+            var swap = order[i];
+            order[i] = order[replacement];
+            order[replacement] = swap;
+        }
+        return { order: order, unresolvedConcepts: unresolvedConcepts };
+    }
+
     function minutesText(ms) {
         var m = Math.round(ms / 60000);
         return m === 1 ? '1 Minute' : m + ' Minuten';
@@ -268,17 +302,6 @@
         if (TEST_ASSERTIVENESS) condition.assertiveness = TEST_ASSERTIVENESS;
         PairSync.join(pairID, role, TEST_MODE);
 
-        // these columns are added to every row of the data file
-        jsPsych.data.addProperties({
-            pair_id: pairID,
-            role: role,
-            assertiveness: condition.assertiveness,
-            assigned_assertiveness: assignedAssertiveness,
-            test_condition_override: TEST_ASSERTIVENESS !== null,
-            label_list: condition.label_list,
-            test_mode: TEST_MODE,
-        });
-
         var concepts = stimuliRows.map(function (r) {
             var goodness = getLabelGoodness(pairID, parseInt(r.concept_nr), r.item_type);
             return {
@@ -292,6 +315,33 @@
         });
         // test runs (&n=...): a subset of the items, chosen by pair ID - other pair IDs give other items
         if (N_OVERRIDE > 0) concepts = seededShuffle(concepts, pairID).slice(0, N_OVERRIDE);
+
+        var phase1Order = orderConcepts(concepts, pairID * 10 + 1);
+        var phase2Transition = separatePhaseOrders(phase1Order, orderConcepts(concepts, pairID * 10 + 2), pairID * 10 + 2);
+        var phase2Order = phase2Transition.order;
+        // Repairing Phase 2 can change its tail, so Phase 3 must use the adjusted order.
+        var phase3Transition = separatePhaseOrders(phase2Order, orderConcepts(concepts, pairID * 10 + 3), pairID * 10 + 3);
+        var phase3Order = phase3Transition.order;
+        var phaseBoundaryWarnings = [];
+        if (phase2Transition.unresolvedConcepts.length) {
+            phaseBoundaryWarnings.push('Teil 1 → 2: Bildnummern ' + phase2Transition.unresolvedConcepts.join(', '));
+        }
+        if (phase3Transition.unresolvedConcepts.length) {
+            phaseBoundaryWarnings.push('Teil 2 → 3: Bildnummern ' + phase3Transition.unresolvedConcepts.join(', '));
+        }
+
+        // these columns are added to every row of the data file
+        jsPsych.data.addProperties({
+            pair_id: pairID,
+            role: role,
+            assertiveness: condition.assertiveness,
+            assigned_assertiveness: assignedAssertiveness,
+            test_condition_override: TEST_ASSERTIVENESS !== null,
+            label_list: condition.label_list,
+            test_mode: TEST_MODE,
+            phase2_boundary_conflicts: phase2Transition.unresolvedConcepts.join(','),
+            phase3_boundary_conflicts: phase3Transition.unresolvedConcepts.join(','),
+        });
 
         // responses of both participants, filled during the experiment, by concept_nr
         var phase1 = {};   // { naive_label, confederate_label, naive_choice, confederate_choice }
@@ -378,7 +428,12 @@
         //-------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
         function screen(html) { return '<div class="screen">' + html + '</div>'; }
         function imageHTML(c) { return '<img class="stim" src="' + c.image + '">'; }
-        function confPanel(html) { return isConf ? '<div class="conf">' + html + '</div>' : ''; }
+        function confPanel(html, modifier) {
+            return isConf ? '<div class="conf' + (modifier ? ' ' + modifier : '') + '">' + html + '</div>' : '';
+        }
+        function phase1ConfPanel(c, html) {
+            return confPanel(html, c.is_filler ? 'conf--filler' : '');
+        }
         function confHeader(c) {
             return 'Bedingung: <b>' + condition.assertiveness + '</b> · Bild ' + c.concept_nr + (c.is_filler ? ' · <b>FILLER</b>' : '') +
                 ' · Label: <b>' + c.label_goodness + '</b>' +
@@ -475,6 +530,11 @@
             };
         }
 
+        // Keep the unattended screen consistent with the room-change explanation.
+        var roomChangeMessage = '<h2>Dieser Teil ist abgeschlossen.</h2>' +
+            '<p>Bitte verlasse jetzt den Raum und melde dich bei der Versuchsleitung. ' +
+            'Sie begleitet dich in einen anderen Raum, in dem du den letzten Teil des Experiments bearbeitest.</p>';
+
         // saves everything collected so far (same file name every time, so the file is overwritten)
         function saveTrial(isFinal) {
             return {
@@ -492,8 +552,10 @@
                             // keep the data in any case: download it in the browser
                             jsPsych.data.get().localSave('csv', filename);
                             if (!isFinal) return ctx.finish({ saved: false, filename: filename });
-                            el.innerHTML = screen('<p style="color:#c62828">Die Daten konnten nicht auf dem Server gespeichert werden ' +
-                                'und wurden stattdessen als Download gespeichert (' + escapeHTML(filename) + ').</p>' +
+                            el.innerHTML = screen((isConf ? roomChangeMessage : '') +
+                                '<p style="color:#c62828">Die Daten konnten nicht auf dem Server gespeichert werden ' +
+                                'und wurden stattdessen als Download gespeichert' +
+                                (isConf ? '.' : ' (' + escapeHTML(filename) + ').') + '</p>' +
                                 '<button class="btn" id="go">Weiter</button>');
                             el.querySelector('#go').addEventListener('click', function () {
                                 ctx.finish({ saved: false, filename: filename });
@@ -513,6 +575,10 @@
                 (isConf ? ' &nbsp;|&nbsp; Bedingung: <b>' + condition.assertiveness + ' / Liste ' + condition.label_list + '</b>' : '') +
                 ' &nbsp;|&nbsp; Konzepte: <b>' + concepts.length + '</b>' +
                 (TEST_MODE ? ' &nbsp;|&nbsp; <b style="color:red;">TESTMODUS</b>' : '') + '</p>' +
+                (phaseBoundaryWarnings.length ? '<p id="phase-boundary-warning" style="color:#c62828">' +
+                    'Die Abstandsregel zwischen den Phasen kann bei dieser Bildauswahl und unveränderten Füllerpositionen ' +
+                    'nicht vollständig eingehalten werden (' + phaseBoundaryWarnings.join('; ') + '). ' +
+                    'Alle ausgewählten Bilder bleiben erhalten.</p>' : '') +
                 (isConf && !labelSimilarityReady() ? '<p style="color:#c62828">Die Ampel-Prüfung wurde nicht geladen. ' +
                     'Bitte prüfe, ob resources/label_similarity.js auf dem Server vorhanden ist, und lade die Seite neu. ' +
                     'Ohne diese Datei ist nur manuelles Feedback möglich.</p>' : ''),
@@ -553,7 +619,7 @@
 
         var preload = {
             type: jsPsychPreload,
-            images: concepts.map(function (c) { return c.image; }),
+            images: concepts.map(function (c) { return c.image; }).concat(isConf ? [] : [PHASE2_EXAMPLE_IMAGE]),
         };
 
         var enter_fullscreen = {
@@ -598,7 +664,7 @@
                         var timeExceeded = false;
                         var labelSubmitted = false;
                         el.innerHTML = screen(
-                            confPanel(confHeader(c) + '<br>Bitte diesen Begriff eingeben: <b style="font-size:20px">' +
+                            phase1ConfPanel(c, confHeader(c) + '<br>Bitte diesen Begriff eingeben: <b style="font-size:20px">' +
                                 caps(c.scripted_label) + '</b>') +
                             imageHTML(c) +
                             '<p>Welcher Begriff beschreibt dieses Bild am besten?</p>' +
@@ -653,7 +719,7 @@
                     var doneKey = 'phase1_discussion_done_c' + c.concept_nr;
                     var confirmed = false;
                     el.innerHTML = screen(
-                        confPanel(confHeader(c) + '<br>Am Ende wählen: <b>' +
+                        phase1ConfPanel(c, confHeader(c) + '<br>Am Ende wählen: <b>' +
                             caps(phase1ConfederateChoice(c, own, partner)) + '</b><ul>' + phrases + '</ul>') +
                         imageHTML(c) +
                         '<div class="labels">' +
@@ -700,7 +766,7 @@
                         { label: partner, source: 'partner', caption: 'Begriff der anderen Person' },
                     ]);
                     el.innerHTML = screen(
-                        confPanel(confHeader(c) + '<br>Bitte wählen: <b>' + caps(scripted) + '</b> (markiert)') +
+                        phase1ConfPanel(c, confHeader(c) + '<br>Bitte wählen: <b>' + caps(scripted) + '</b> (markiert)') +
                         imageHTML(c) +
                         '<p><b style="color:#c62828">Die Diskussion ist abgeschlossen.</b> Wählt jetzt, <strong>ohne weiter miteinander zu sprechen</strong>, ' +
                         'den Begriff, den ihr persönlich bevorzugt.</p>' +
@@ -755,7 +821,7 @@
             };
         }
 
-        var phase1_trials = orderConcepts(concepts, pairID * 10 + 1).map(function (c) {
+        var phase1_trials = phase1Order.map(function (c) {
             var t = [phase1Label(c), phase1Discussion(c), phase1Choice(c)];
             if (CONFIG.phase1_reveal_choices) t.push(phase1Reveal(c));
             return { timeline: t };
@@ -784,7 +850,18 @@
                 '<p>Nach jeder Auswahl erfahrt ihr, ob das richtige Bild ausgewählt wurde.</p>' +
                 '<p>Ihr habt <strong>maximal ' + CONFIG.phase2_max_attempts + ' Versuche</strong> pro Bild.</p>', { step: 'phase2' });
 
-        // Reached only after clicking Weiter on the local Phase 2 instructions.
+        var phase2_instruction_pages = [phase2_instructions];
+        if (!isConf) {
+            phase2_instruction_pages.push(instructions(
+                '<figure class="phase2-example">' +
+                '<figcaption><strong>Beispiel für die Bildauswahl der anderen Person</strong><br>' +
+                'Die andere Person wählt anhand deines Begriffs das passende Bild aus.</figcaption>' +
+                '<img src="' + PHASE2_EXAMPLE_IMAGE + '" ' +
+                'alt="Beispielansicht der anderen Person: 16 Bilder in einem Raster unter der Aufforderung „Wähl das richtige Bild aus:“." ' +
+                'width="1448" height="1086"></figure>', { step: 'phase2_example' }));
+        }
+
+        // Reached only after clicking Weiter on every local Phase 2 instruction page.
         var phase2_ready = {
             type: jsPsychPairTrial,
             data: { phase: 'phase2', step: 'instructions_ready' },
@@ -852,11 +929,13 @@
                         });
                     } else {
                         var originalLabel = (phase1[c.concept_nr] || {}).naive_label;
-                        var originalLabelHTML = '<p>Participant&#39;s original label from phase 1:<br><b>' +
+                        var originalLabelHTML = '<p>Ursprünglicher Begriff der VP aus Teil 1:<br><b>' +
                             caps(originalLabel || '—') + '</b></p>';
+                        var assignedLabelHTML = '<p class="phase2-assigned-label">Dein Begriff aus Teil 1:' +
+                            '<b class="phase2-confederate-label">' + caps(confederateLabel(c)) + '</b></p>';
                         el.innerHTML = screen(
                             confPanel(confHeader(c) + '<br>Versuch ' + attempt + ' von ' + CONFIG.phase2_max_attempts +
-                                ' · Dein Begriff aus Teil 1: <b>' + caps(confederateLabel(c)) + '</b>' + originalLabelHTML) +
+                                originalLabelHTML + assignedLabelHTML) +
                             '<p class="waiting">Warte auf den Begriff der VP …</p>');
                         PairSync.getPartnerValue('phase2_term_' + key, function (term) {
                             var t0 = performance.now();
@@ -865,9 +944,9 @@
                             var feedbackSubmitted = false;
                             el.innerHTML = screen(
                                 confPanel(confHeader(c) + '<br>Versuch ' + attempt + ' von ' + CONFIG.phase2_max_attempts +
-                                    ' · Dein Begriff aus Teil 1: <b>' + caps(confederateLabel(c)) + '</b>' +
-                                    (recommended === null ? '<br><b>Bitte prüfen und selbst entscheiden.</b>' :
-                                        '<br>Empfohlen: <b>' + recommended + '</b> (markiert)') + originalLabelHTML) +
+                                    originalLabelHTML +
+                                    (recommended === null ? '<p><b>Bitte prüfen und selbst entscheiden.</b></p>' :
+                                        '<p>Empfohlen: <b>' + recommended + '</b> (markiert)</p>') + assignedLabelHTML) +
                                 '<p>Begriff der VP:</p><div class="labels"><div class="word">' + caps(term) + '</div></div>' +
                                 phase2TrafficHTML(assessment) +
                                 '<button class="btn' + (recommended === 'richtig' ? ' recommended' : '') + '" data-fb="richtig">Richtig</button>' +
@@ -899,7 +978,7 @@
             };
         }
 
-        var phase2_trials = orderConcepts(concepts, pairID * 10 + 2).map(phase2Concept);
+        var phase2_trials = phase2Order.map(phase2Concept);
 
         //-------------------------------------------------------------------------------------------------------------------------------------------------------------------------//
         //----------------------Phase 3 - Private naming (naive participant only)---------------------------------------------------------------------------------------------------//
@@ -912,7 +991,7 @@
                 showWaiting(el);
                 PairSync.waitForPartner('phase2_end', function () {
                     el.innerHTML = '<div class="instructions">' + (isConf
-                        ? '<h2>Danke, du bist mit deinem Teil jetzt fertig.</h2><p>Bitte verlasse jetzt den Raum.</p>'
+                        ? roomChangeMessage
                         : '<h2>Dieser Teil ist abgeschlossen.</h2>' +
                           '<p>Die andere Person verlässt jetzt den Raum. Bitte warte, bis du alleine bist, und klicke anschließend auf „Weiter“.</p>' +
                           '<button class="btn" id="go">Weiter</button>') + '</div>';
@@ -954,7 +1033,7 @@
         }
 
         var phase3 = {
-            timeline: [phase3_instructions].concat(orderConcepts(concepts, pairID * 10 + 3).map(phase3Naming)),
+            timeline: [phase3_instructions].concat(phase3Order.map(phase3Naming)),
             conditional_function: function () { return !isConf; },
         };
 
@@ -970,7 +1049,7 @@
         var final = {
             type: jsPsychHtmlButtonResponse,
             stimulus: isConf
-                ? '<p><b>Confederate-Teil beendet.</b> Daten gespeichert.</p>'
+                ? '<div class="instructions">' + roomChangeMessage + '</div>'
                 : '<p><b>Vielen Dank! Du hast alle Aufgaben abgeschlossen.</b></p>' +
                   '<p>Bitte bleib noch kurz sitzen und warte auf die Versuchsleitung.</p>',
             choices: [],
@@ -983,7 +1062,9 @@
         var timeline = [].concat(
             [experimenter_screen, connect, preload, enter_fullscreen, general_intro, phase1_instructions],
             phase1_trials,
-            [saveTrial(false), phase2_instructions, phase2_ready],
+            [saveTrial(false)],
+            phase2_instruction_pages,
+            [phase2_ready],
             phase2_trials,
             [saveTrial(false), phase2_end, phase3, saveTrial(true), exit_fullscreen, final]
         );

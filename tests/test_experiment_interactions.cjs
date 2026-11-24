@@ -152,8 +152,8 @@ function createPair({ pairID = 1, limit = 40, rows = ROWS, similarityLimit } = {
     return pair;
 }
 
-function render(view, trial) {
-    const frame = { view, trial, el: new Element(), finished: [], ticks: [] };
+function render(view, trial, el = new Element()) {
+    const frame = { view, trial, el, finished: [], ticks: [] };
     trial.render(frame.el, {
         finish: data => frame.finished.push({ ...trial.data, ...data }),
         every: (ms, callback) => frame.ticks.push(callback),
@@ -348,6 +348,52 @@ function checkPhase1(concept, expected, firstRole, pairID = 1) {
         'traffic light must compare the assigned label, not the mistyped Phase 1 entry');
 }
 
+function checkPhase1PanelTransitions(pairID, targetStrategy, fillerStrategy) {
+    const pair = createPair({ pairID });
+    // jsPsych reuses its display element across screens and concepts.
+    const displays = Object.fromEntries(ROLES.map(role => [role, new Element()]));
+    const renderStep = (phase, step, concept) => Object.fromEntries(ROLES.map(role =>
+        [role, render(pair[role], pair[role].find(phase, step, concept), displays[role])]));
+    const panelClasses = frame => frame.el.children
+        .map(child => String(child.attrs.class || '').split(/\s+/))
+        .filter(classes => classes.includes('conf'));
+    const checkPanels = (frames, filler, strategy) => {
+        assert.deepEqual(panelClasses(frames.naive), [], 'participant screens have no confederate panel');
+        assert.equal(frames.naive.el.innerHTML.includes('conf--filler'), false);
+        assert.deepEqual(panelClasses(frames.confederate), [filler ? ['conf', 'conf--filler'] : ['conf']],
+            'each Phase 1 screen must select its current concept\'s panel style');
+        assert.equal(frames.confederate.el.innerHTML.includes('<b>FILLER</b>'), filler,
+            'the existing filler label remains specific to filler trials');
+        assert.ok(frames.confederate.el.innerHTML.includes('<b>' + strategy + '</b>'),
+            'panel styling must preserve the condition-specific strategy');
+    };
+    for (const concept of [1, 17, 2]) {
+        const filler = concept === 17;
+        const strategy = filler ? fillerStrategy : targetStrategy;
+        const entries = renderStep('phase1', 'label', concept);
+        checkPanels(entries, filler, strategy);
+        fill(entries.naive, 'Mein Wort');
+        fill(entries.confederate, entries.confederate.trial.data.confederate_label);
+        const discussions = renderStep('phase1', 'discussion', concept);
+        checkPanels(discussions, filler, strategy);
+        confirmBoth(pair, discussions, '#discussion-done', 'phase1_discussion_done_c' + concept);
+        const choices = renderStep('phase1', 'choice', concept);
+        checkPanels(choices, filler, strategy);
+        choices.naive.el.querySelectorAll('button[data-i]')[0].click();
+        choices.confederate.el.querySelectorAll('button[data-i]')
+            .find(button => button.attrs.class.split(/\s+/).includes('recommended')).click();
+        for (const role of ROLES) assert.equal(choices[role].finished.length, 1);
+    }
+    const attempts = renderStep('phase2', 'attempt', 17);
+    assert.deepEqual(panelClasses(attempts.confederate), [['conf']],
+        'Phase 2 filler waiting panels retain their existing style');
+    fill(attempts.naive, 'Mein Wort');
+    assert.deepEqual(panelClasses(attempts.confederate), [['conf']],
+        'Phase 2 filler decision panels retain their existing style');
+    assert.deepEqual(panelClasses(attempts.naive), []);
+    assert.equal(attempts.naive.el.innerHTML.includes('conf--filler'), false);
+}
+
 function phase2Container(view, concept) {
     const result = view.nodes.find(node => node.timeline?.[0]?.data?.phase === 'phase2' &&
         node.timeline[0].data.concept_nr === concept);
@@ -457,6 +503,10 @@ function run() {
         check('assigned bad label, first=' + firstRole, () => checkPhase1(2, 'ZAPFENLEUCHTE', firstRole));
         check('assigned filler label, first=' + firstRole, () => checkPhase1(17, 'MITTELBEGRIFF', firstRole));
     }
+    check('Phase 1 target/filler/target panel styles, assertive condition', () =>
+        checkPhase1PanelTransitions(1, 'Eigenen Begriff durchsetzen', 'Begriff der VP übernehmen'));
+    check('Phase 1 target/filler/target panel styles, compliant condition', () =>
+        checkPhase1PanelTransitions(2, 'Begriff der VP übernehmen', 'Eigenen Begriff durchsetzen'));
     check('pair-specific alternate label list remains authoritative', () => checkPhase1(1, 'WASSERKLAVIER', 'confederate', 3));
     check('label timer expiry while partner is still entering', () => {
         const pair = createPair();
@@ -698,11 +748,31 @@ function run() {
                 assert.ok(index >= 0, 'Phase 2 instructions must be on the real timeline');
                 assert.equal(view.timeline[index].type, 'html-button-response');
                 assert.deepEqual(Array.from(view.timeline[index].choices), ['Weiter']);
+                assert.doesNotMatch(view.timeline[index].stimulus, /phase2-example|<img/,
+                    'the task explanation must remain separate from the example page');
+                const examplePages = view.timeline.filter(node =>
+                    node.data?.phase === 'instructions' && node.data?.step === 'phase2_example');
+                assert.equal(examplePages.length, role === 'naive' ? 1 : 0,
+                    'only the participant receives the example instruction page');
+                if (role === 'naive') {
+                    const example = examplePages[0];
+                    assert.equal(view.timeline[index + 1], example,
+                        'the first Weiter must open the example before signaling readiness');
+                    assert.equal(example.type, 'html-button-response');
+                    assert.deepEqual(Array.from(example.choices), ['Weiter']);
+                    assert.equal(example.trial_duration ?? null, null);
+                    assert.equal(example.stimulus_duration ?? null, null);
+                    assert.match(example.stimulus, /<figure class="phase2-example">/);
+                    assert.match(example.stimulus, /Beispiel für die Bildauswahl der anderen Person/);
+                    assert.match(example.stimulus, /<img[^>]*src="stimuli\/Example%20image_Phase%202\.png"/);
+                    assert.match(example.stimulus, /alt="[^"]+"/);
+                }
+                const gateIndex = index + (role === 'naive' ? 2 : 1);
                 const gate = view.find('phase2', 'instructions_ready', null);
-                assert.equal(view.timeline[index + 1], gate,
-                    'clicking Weiter must enter the shared readiness gate');
+                assert.equal(view.timeline[gateIndex], gate,
+                    'only the final instruction page may lead to the shared readiness gate');
                 assert.equal(gate.type, 'pair-trial');
-                const task = view.timeline[index + 2]?.timeline?.[0];
+                const task = view.timeline[gateIndex + 1]?.timeline?.[0];
                 assert.equal(task?.data?.phase, 'phase2');
                 assert.equal(task?.data?.step, 'attempt',
                     'the first task must follow the gate');
